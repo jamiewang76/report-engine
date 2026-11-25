@@ -2,22 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { Session } from "@/lib/auth/session";
 import { memoryStore } from "@/lib/access/memoryStore";
+import { sampleArAging } from "@/lib/reports/ar-aging/fixtures/sample";
 
 let currentSession: Session | null = null;
 let m = memoryStore();
+const runReport = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({ getSession: async () => currentSession }));
 vi.mock("@/lib/access/store", () => ({ get supabaseStore() { return m.store; } }));
-// The handler's data source: invoices for whichever org the handler asks for (it must be the session's org).
-const queriedOrgs: string[] = [];
-vi.mock("@/lib/db", () => ({
-  forOrg: (orgId: string) => ({
-    select: async () => {
-      queriedOrgs.push(orgId);
-      return { data: [{ id: "i1", number: "INV-1", account_name: "GC", deal_name: "Job", job_number: "1", invoice_date: "2026-10-01", due_date: "2026-10-15", amount: 1000, paid_amount: 0, credit_applied: 0, retainage_amount: 0, retainage_due_date: null, is_deposit: false }], error: null };
-    },
-  }),
-}));
+vi.mock("@/lib/reports/runner", () => ({ runReport: (...a: unknown[]) => runReport(...a) }));
 
 const { GET } = await import("./route");
 const call = (qs = "") => GET(new NextRequest(`http://localhost/api/reports/ar-aging${qs}`), { params: Promise.resolve({ report: "ar-aging" }) });
@@ -26,47 +19,48 @@ const s = (orgId: string): Session => ({ userId: "u1", orgId, homeOrgId: orgId, 
 beforeEach(() => {
   m = memoryStore();
   currentSession = null;
-  queriedOrgs.length = 0;
+  runReport.mockReset();
+  runReport.mockImplementation(async () => ({ state: "ready", result: sampleArAging() }));
 });
 
 describe("GET /api/reports/[report]", () => {
   it("401 when not signed in", async () => {
     expect((await call()).status).toBe(401);
+    expect(runReport).not.toHaveBeenCalled();
   });
 
-  it("403 for an org without the assignment, and never touches its data", async () => {
+  it("403 for an org without the assignment; the report never runs", async () => {
     m.assign("orgA", "ar-aging");
     currentSession = s("orgB");
     expect((await call("?asOf=2026-11-25")).status).toBe(403);
-    expect(queriedOrgs).toEqual([]);
+    expect(runReport).not.toHaveBeenCalled();
     expect(m.events).toEqual([]);
   });
 
-  it("200 for the assigned org; logs a view with params and row count", async () => {
+  it("200 for the assigned org: runs with the session (not the request) org and the org's config; logs a view", async () => {
     m.assign("orgA", "ar-aging", { priorityThreshold: 500 });
     currentSession = s("orgA");
-    const res = await call("?asOf=2026-11-25");
+    const res = await call("?asOf=2026-11-25&orgId=orgB");
     expect(res.status).toBe(200);
-    expect(queriedOrgs).toEqual(["orgA"]);
+    expect(runReport.mock.calls[0][0]).toMatchObject({ session: { orgId: "orgA" }, config: { priorityThreshold: 500, includeDeposits: true } });
     expect(m.events).toHaveLength(1);
-    expect(m.events[0]).toMatchObject({
-      orgId: "orgA", userId: "u1", reportId: "ar-aging", action: "view", rowCount: 1,
-      params: { asOf: "2026-11-25", priorityThreshold: 500, includeDeposits: true },
-    });
+    expect(m.events[0]).toMatchObject({ orgId: "orgA", reportId: "ar-aging", action: "view", rowCount: 6, params: { version: "2.0.0", grouping: "customer" } });
   });
 
-  it("xlsx export is logged as export_xlsx", async () => {
+  it("xlsx export: standard file name, logged as export_xlsx with version and filters", async () => {
     m.assign("orgA", "ar-aging");
     currentSession = s("orgA");
     const res = await call("?asOf=2026-11-25&format=xlsx");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("spreadsheetml");
-    expect(m.events[0]).toMatchObject({ action: "export_xlsx", rowCount: 1 });
+    expect(res.headers.get("content-disposition")).toContain("ar-aging_Sample-Flooring_2026-11-25.xlsx");
+    expect(m.events[0]).toMatchObject({ action: "export_xlsx", rowCount: 6, params: { version: "2.0.0", filters: ["As of Nov 25, 2026", "All customers", "All jobs", "All owners"] } });
   });
 
-  it("400 on a malformed asOf (no silent default)", async () => {
+  it("409 while the org's first sync hasn't finished", async () => {
     m.assign("orgA", "ar-aging");
     currentSession = s("orgA");
-    expect((await call("?asOf=yesterday")).status).toBe(400);
+    runReport.mockResolvedValueOnce({ state: "preparing", sync: { lastRefreshedAt: null, running: true, lastError: null } });
+    expect((await call()).status).toBe(409);
   });
 });

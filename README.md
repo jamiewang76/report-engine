@@ -19,7 +19,7 @@ Custom reports on MeasureSquare CRM data. Customers sign in with their own Measu
 1. `npm install`
 2. Copy `.env.example` → `.env.local` and fill in.
 3. **id4:** register a client (confidential, authorization code + PKCE, `offline_access` allowed), redirect URI `${APP_URL}/api/auth/callback`.
-4. **Supabase:** run the files in `supabase/migrations/` in order (`0001` … `0005_admin_added_orgs.sql`). After your first sign-in, optionally run `supabase/seed/super_admin_jamie.sql`; `supabase/tests/report_events_immutable.sql` checks the activity log is insert-only (every row should say PASS).
+4. **Supabase:** run the files in `supabase/migrations/` in order (`0001` … `0006_invoice_payment_term.sql`). After your first sign-in, optionally run `supabase/seed/super_admin_jamie.sql`; `supabase/tests/report_events_immutable.sql` checks the activity log is insert-only (every row should say PASS).
 5. `npm run dev`, then sign in at `http://localhost:3000`.
 6. **Vercel:** set the same env vars; the cron in `vercel.json` calls `/api/sync` with `CRON_SECRET`.
 
@@ -42,7 +42,7 @@ Answers: which token claim carries the org id (update `identityFromTokens()` in 
 
 | Report | Pilot | Status | Data |
 |---|---|---|---|
-| A/R Aging | Design Construct | ✅ live (`src/lib/reports/arAging.ts`, tested); settings: priority threshold, include deposits | Invoices: due date, amount, paid, credits, retainage |
+| A/R Aging | Design Construct | ✅ live (`src/lib/reports/ar-aging/`, reference implementation of docs/report-standard.md); settings: priority threshold, include deposits | Invoices: due date, amount, paid, credits, retainage |
 | Bid Timing | Select Interiors | ⏳ after probe | Deals: created, bid due; takeoff/proposal from timeline or custom fields |
 | Financial Summary | M&P Flooring | ⏳ partial | Invoiced revenue + tax by month now; payments + COGS need the Payments/Bills endpoints |
 | Forecast, WIP variants, labor budget, claims | Provincial, Coverings, PK, Design Floors, Precision, Goduco, MeasureUp, MSS | Phase 2 | Standard API |

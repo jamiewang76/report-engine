@@ -14,6 +14,8 @@ export type Session = {
   name: string | null;
   /** id4 token had isSuper=true and a @measuresquare.com email at sign-in. Admin requests re-check (see isSuperAdmin). */
   superClaim?: boolean;
+  /** IANA time zone from the token (`timezone` claim); used for the org's local report date. */
+  timeZone?: string | null;
   /** Display hint only (shows the Admin link). Never used for authorization. */
   isSuperAdmin?: boolean;
 };

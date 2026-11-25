@@ -1,5 +1,5 @@
 import type { Session } from "@/lib/auth/session";
-import { getReport, REPORTS, type ReportDef } from "@/lib/reports/registry";
+import { getReport, REPORTS, type ReportModule } from "@/lib/reports/registry";
 import { validateConfig } from "@/lib/reports/schema";
 import type { AccessStore, NewEvent } from "./store";
 
@@ -44,7 +44,7 @@ export async function isSuperAdmin(store: AccessStore, s: Session | null): Promi
 // ---------- Report access ----------
 
 export type AccessResult =
-  | { ok: true; report: ReportDef; config: Record<string, unknown>; assignmentId: number }
+  | { ok: true; report: ReportModule; config: Record<string, unknown>; assignmentId: number }
   | { ok: false; status: 401 | 403 | 404 | 409; error: string };
 
 export async function checkReportAccess(store: AccessStore, s: Session | null, reportId: string): Promise<AccessResult> {
@@ -61,7 +61,7 @@ export async function checkReportAccess(store: AccessStore, s: Session | null, r
 }
 
 /** Live reports with an active assignment for the org, in catalog order. */
-export async function visibleReports(store: AccessStore, orgId: string): Promise<ReportDef[]> {
+export async function visibleReports(store: AccessStore, orgId: string): Promise<ReportModule[]> {
   const assigned = new Set((await store.activeAssignments(orgId)).map((a) => a.reportId));
   return REPORTS.filter((r) => r.status === "live" && assigned.has(r.id));
 }

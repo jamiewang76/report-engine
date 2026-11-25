@@ -73,6 +73,6 @@ export type InvoiceDetail = InvoiceSummary & {
   retainageAmount?: number | null;
   retainagePercent?: number | null;
   retainageDueDate?: string | null;
-  paymentTerm?: string | null;
+  paymentTerm?: string | { id?: string; name?: string } | null;
   lastUpdatedOn?: string | null;
 };

@@ -32,7 +32,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
   const reports = await visibleReports(supabaseStore, s.orgId);
   if (!reports.length) await logViewEmpty(supabaseStore, s);
   const status = reports.length ? await dataStatus(s.orgId) : null;
-  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <>
@@ -55,19 +54,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
             {status && <RefreshPanel status={status} />}
             <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
               {reports.map((r) => (
-                <div key={r.id} style={card}>
-                  <strong>{r.name}</strong>
-                  <div style={{ color: "#666", fontSize: 14, margin: "4px 0 12px" }}>{r.description}</div>
-                  <form action={`/api/reports/${r.id}`} method="get" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: 0 }}>
-                    <input type="hidden" name="format" value="xlsx" />
-                    <label style={{ fontSize: 13, color: "#444" }}>
-                      As of{" "}
-                      <input type="date" name="asOf" defaultValue={today} required style={{ font: "inherit", fontSize: 13, padding: "4px 6px", border: "1px solid #ddd", borderRadius: 6 }} />
-                    </label>
-                    <button type="submit" style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1f4fd1", background: "#fff", color: "#1f4fd1", cursor: "pointer", fontSize: 13 }}>
-                      Download Excel
-                    </button>
-                  </form>
+                <div key={r.id} style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <div>
+                    <a href={`/reports/${r.id}`} style={{ fontWeight: 600, color: "#1a1a1a", textDecoration: "none", fontSize: 16 }}>{r.name}</a>
+                    <div style={{ color: "#666", fontSize: 14, marginTop: 4 }}>{r.description}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <a href={`/api/reports/${r.id}?format=xlsx`} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #d0d5dd", color: "#1a1a1a", textDecoration: "none", fontSize: 13 }}>Download Excel</a>
+                    <a href={`/reports/${r.id}`} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #1f4fd1", background: "#1f4fd1", color: "#fff", textDecoration: "none", fontSize: 13 }}>Open report</a>
+                  </div>
                 </div>
               ))}
             </div>

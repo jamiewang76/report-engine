@@ -24,24 +24,37 @@ export function claimsOf(accessToken: string) {
 
 /** Orgs the user belongs to. Returns null if the list could not be read (caller falls back to what it knows). */
 export async function fetchUserOrgs(accessToken: string): Promise<CrmOrg[] | null> {
+  return (await fetchUserProfile(accessToken)).orgs;
+}
+
+const fullNameOf = (u: Json) =>
+  str(u.fullName) ?? ([str(u.firstName), str(u.lastName)].filter(Boolean).join(" ") || undefined) ?? str(u.displayName) ?? str(u.name) ?? null;
+
+/**
+ * The CRM user profile (GET /ups/api/users/{userId}) with the user's own token: their organizations and full name.
+ * Used at sign-in; the name is the fallback when the token has no name claim. Nulls when it can't be read.
+ */
+export async function fetchUserProfile(accessToken: string): Promise<{ orgs: CrmOrg[] | null; name: string | null }> {
   const { crmUserId } = claimsOf(accessToken);
-  if (!crmUserId) return null;
+  if (!crmUserId) return { orgs: null, name: null };
   try {
     const res = await fetch(new URL(`/ups/api/users/${encodeURIComponent(crmUserId)}`, env.crmApiBase), {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
       cache: "no-store",
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { orgs: null, name: null };
     const body = (await res.json()) as Json;
     const u = (body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : body) as Json;
-    if (!Array.isArray(u.organizations)) return null;
-    return (u.organizations as Json[])
+    const name = fullNameOf(u);
+    if (!Array.isArray(u.organizations)) return { orgs: null, name };
+    const orgs = (u.organizations as Json[])
       .map((o) => ({ id: str(o.id) ?? str(o.organizationId), name: str(o.name) ?? str(o.organizationName) }))
       .filter((o): o is CrmOrg => !!o.id)
       .map((o) => ({ id: o.id, name: o.name ?? o.id }))
       .sort((a, b) => a.name.localeCompare(b.name));
+    return { orgs, name };
   } catch {
-    return null;
+    return { orgs: null, name: null };
   }
 }
 

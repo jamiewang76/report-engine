@@ -7,6 +7,8 @@ const CONCURRENCY = 4; // per-org parallel detail calls; keep low to be kind to 
 
 const n = (v: unknown) => (v == null || v === "" ? null : Number(v));
 const name = (v: unknown) => (v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name) : null);
+/** Payment terms may come as text ("Net 30") or as a lookup object ({ id, name }). */
+const termText = (v: unknown) => (v == null || v === "" ? null : typeof v === "object" ? name(v) : String(v));
 
 /** Deals: list filtered by UpdatedStart (incremental), then fetch detail for dates/financial fields. */
 async function syncDeals(crm: CrmClient, orgId: string, since: string | null) {
@@ -52,8 +54,8 @@ async function syncDeals(crm: CrmClient, orgId: string, since: string | null) {
  */
 async function syncInvoices(crm: CrmClient, orgId: string) {
   const list = await crm.all<InvoiceSummary>("/api/Invoices", {});
-  const { data: existing } = await forOrg(orgId).select("invoices", "id, paid_amount, amount, retainage_amount");
-  const known = new Map((existing ?? []).map((r: any) => [r.id, r]));
+  const existing = await forOrg(orgId).selectAll<{ id: string; paid_amount: number | null; amount: number | null; retainage_amount: number | null }>("invoices", "id, paid_amount, amount, retainage_amount");
+  const known = new Map(existing.map((r) => [r.id, r]));
   const needsDetail = list.filter((i) => {
     const k = known.get(i.id);
     const open = Number(i.amount ?? 0) - Number(i.paidAmount ?? 0) > 0.005;
@@ -77,6 +79,7 @@ async function syncInvoices(crm: CrmClient, orgId: string) {
     credit_applied: n(i.appliedCreditNoteAmount),
     retainage_amount: n(i.retainageAmount),
     retainage_due_date: i.retainageDueDate ?? null,
+    payment_term: termText(i.paymentTerm),
     is_deposit: i.isDeposit ?? null,
     raw: i,
     synced_at: new Date().toISOString(),
