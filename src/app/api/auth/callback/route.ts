@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeCode, identityFromTokens } from "@/lib/auth/id4";
+import { exchangeCode, fetchUserInfo, identityFromTokens } from "@/lib/auth/id4";
 import { setSession } from "@/lib/auth/session";
 import { saveConnection } from "@/lib/crm/connection";
 import { env } from "@/lib/env";
@@ -12,13 +12,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid sign-in response" }, { status: 400 });
   }
   const tokens = await exchangeCode(code, verifier);
-  const who = identityFromTokens(tokens);
+  const who = identityFromTokens(tokens, await fetchUserInfo(tokens.access_token));
+  // PHASE 0 (temporary): log claim names/values (never the tokens themselves) so we can map the real
+  // org claims. Remove once identityFromTokens() is finalized.
+  console.log("[claims-probe]", JSON.stringify(who.claims));
   if (!who.userId || !who.orgId) {
     // Phase 0: if this fires, look at `claims` and update identityFromTokens() with the real org claim name.
-    return NextResponse.json({ error: "Could not determine user/organization from token", claims: Object.keys(who.claims) }, { status: 500 });
+    return NextResponse.json({ error: "Could not determine user/organization from token" }, { status: 500 });
   }
-  await saveConnection(who.orgId, who.userId, who.email, tokens);
-  await setSession({ userId: who.userId, orgId: who.orgId, email: who.email, name: who.name });
+  await saveConnection({ orgId: who.orgId, userId: who.userId, email: who.email, name: who.name, orgName: who.orgName }, tokens);
+  await setSession({ userId: who.userId, orgId: who.orgId, orgName: who.orgName, email: who.email, name: who.name });
   const res = NextResponse.redirect(`${env.appUrl}/`);
   res.cookies.delete("pkce_verifier");
   res.cookies.delete("oauth_state");

@@ -34,7 +34,7 @@ export function createPkce() {
   return { verifier, challenge, state };
 }
 
-export async function authorizeUrl(challenge: string, state: string) {
+export async function authorizeUrl(challenge: string, state: string, prompt?: "login") {
   const d = await discovery();
   const u = new URL(d.authorization_endpoint);
   u.searchParams.set("client_id", env.id4ClientId);
@@ -44,6 +44,7 @@ export async function authorizeUrl(challenge: string, state: string) {
   u.searchParams.set("code_challenge", challenge);
   u.searchParams.set("code_challenge_method", "S256");
   u.searchParams.set("state", state);
+  if (prompt) u.searchParams.set("prompt", prompt);
   return u.toString();
 }
 
@@ -75,22 +76,39 @@ export const exchangeCode = (code: string, verifier: string) =>
 export const refreshTokens = (refreshToken: string) =>
   tokenRequest({ grant_type: "refresh_token", refresh_token: refreshToken });
 
+/** OIDC userinfo: name/email usually live here rather than in the access token. Best-effort. */
+export async function fetchUserInfo(accessToken: string): Promise<Record<string, unknown>> {
+  try {
+    const d = (await discovery()) as Discovery & { userinfo_endpoint?: string };
+    const url = d.userinfo_endpoint ?? `${env.id4Issuer}/connect/userinfo`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    return res.ok ? ((await res.json()) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
- * Identify user + organization from the token claims.
- * PHASE 0 TODO: confirm the actual claim names in a real id4 token
- * (run `npm run probe` and inspect `claims`). Candidates below are guesses.
+ * Identify user + organization from the token claims (access token, then id_token, then userinfo).
+ * PHASE 0 TODO: confirm the actual claim names in a real id4 token (see "[claims-probe]" in the
+ * Vercel logs after sign-in). Candidates below are guesses.
  */
-export function identityFromTokens(t: TokenSet) {
-  const claims = decodeJwt(t.access_token) as Record<string, unknown>;
+export function identityFromTokens(t: TokenSet, userInfo: Record<string, unknown> = {}) {
+  const access = decodeJwt(t.access_token) as Record<string, unknown>;
+  const idToken = t.id_token ? (decodeJwt(t.id_token) as Record<string, unknown>) : {};
+  const sources = [access, idToken, userInfo];
   const pick = (...keys: string[]) => {
-    for (const k of keys) if (claims[k] != null) return String(claims[k]);
+    for (const src of sources) for (const k of keys) if (src[k] != null && src[k] !== "") return String(src[k]);
     return null;
   };
+  const given = pick("given_name");
+  const family = pick("family_name");
   return {
     userId: pick("sub"),
     email: pick("email"),
-    name: pick("name", "preferred_username"),
+    name: pick("name") ?? ([given, family].filter(Boolean).join(" ") || pick("preferred_username")),
     orgId: pick("organization_id", "organizationId", "org_id", "tenant_id", "OrganizationId"),
-    claims,
+    orgName: pick("organization_name", "organizationName", "org_name", "tenant_name", "OrganizationName", "company_name"),
+    claims: { access, idToken, userInfo },
   };
 }

@@ -7,13 +7,18 @@ import { CrmClient } from "./client";
  * One row per signed-in user per org in `connections`. Holds the encrypted refresh token so the
  * nightly sync can run without the user present. Access tokens are short-lived and kept in memory only.
  */
-export async function saveConnection(orgId: string, userId: string, email: string | null, t: TokenSet) {
+export async function saveConnection(
+  who: { orgId: string; userId: string; email: string | null; name: string | null; orgName: string | null },
+  t: TokenSet,
+) {
   if (!t.refresh_token) throw new Error("No refresh token returned — is offline_access granted to this client in id4?");
   const { error } = await db().from("connections").upsert(
     {
-      org_id: orgId,
-      user_id: userId,
-      email,
+      org_id: who.orgId,
+      user_id: who.userId,
+      email: who.email,
+      user_name: who.name,
+      org_name: who.orgName,
       refresh_token_enc: encrypt(t.refresh_token),
       updated_at: new Date().toISOString(),
       revoked: false,

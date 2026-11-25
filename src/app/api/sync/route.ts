@@ -29,6 +29,11 @@ export async function POST() {
   // Simple per-org rate limit: one manual refresh per 15 minutes.
   const { data: recent } = await db().from("sync_runs").select("started_at").eq("org_id", s.orgId)
     .gte("started_at", new Date(Date.now() - 15 * 60_000).toISOString()).limit(1);
-  if (recent?.length) return NextResponse.json({ error: "Refreshed recently — try again in a few minutes" }, { status: 429 });
-  return NextResponse.json(await syncOrg(s.orgId));
+  if (recent?.length) return NextResponse.json({ error: "Data was refreshed less than 15 minutes ago. Try again later." }, { status: 429 });
+  try {
+    return NextResponse.json(await syncOrg(s.orgId));
+  } catch (e) {
+    console.error("[sync] manual refresh failed", s.orgId, e);
+    return NextResponse.json({ error: "Refresh failed. Please try again later." }, { status: 502 });
+  }
 }

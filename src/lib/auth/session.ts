@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { env } from "@/lib/env";
 
 /** Browser session = signed cookie with user + org ids only. CRM tokens never go to the browser. */
-export type Session = { userId: string; orgId: string; email: string | null; name: string | null };
+export type Session = { userId: string; orgId: string; orgName?: string | null; email: string | null; name: string | null };
 
 const COOKIE = "re_session";
 const key = () => new TextEncoder().encode(env.sessionSecret);
