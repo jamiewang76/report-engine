@@ -7,7 +7,8 @@ export async function toXlsx<T>(title: string, sheets: { name: string; rows: T[]
   const wb = new ExcelJS.Workbook();
   wb.creator = "MeasureSquare Report Engine";
   for (const s of sheets) {
-    const ws = wb.addWorksheet(s.name.slice(0, 31));
+    // Excel forbids * ? : \ / [ ] in sheet names (e.g. "A/R Aging" -> "AR Aging") and caps them at 31 chars.
+    const ws = wb.addWorksheet(s.name.replace(/[*?:\\/[\]]/g, "").slice(0, 31) || "Sheet1");
     ws.addRow([title]).font = { bold: true, size: 14 };
     ws.addRow([]);
     const header = ws.addRow(s.columns.map((c) => c.header));

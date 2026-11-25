@@ -1,16 +1,14 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
-import { dataStatus, listUserOrgs } from "@/lib/orgs";
-import UserMenu from "./components/UserMenu";
+import { dataStatus } from "@/lib/orgs";
+import { logViewEmpty, visibleReports } from "@/lib/access";
+import { supabaseStore } from "@/lib/access/store";
+import AppHeader from "./components/AppHeader";
 import RefreshPanel from "./components/RefreshPanel";
 
 export const dynamic = "force-dynamic";
 
-const REPORTS = [
-  { id: "ar-aging", name: "A/R Aging", desc: "Open invoices by days past due, with retainage held." },
-  { id: "bid-timing", name: "Bid Timing", desc: "Job created vs bid due vs takeoff done vs proposal sent." },
-  { id: "financial-summary", name: "Financial Summary", desc: "Invoiced revenue and tax by month (payments & COGS pending API)." },
-];
+const card: React.CSSProperties = { background: "#fff", border: "1px solid #e5e5e5", borderRadius: 10, padding: 16 };
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const s = await getSession();
@@ -30,37 +28,51 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
     );
   }
 
-  // Reads only: nothing here triggers a CRM sync. Data refreshes only via the button (or the nightly job).
-  const [orgs, status] = await Promise.all([listUserOrgs(s.userId, s.homeOrgId!), dataStatus(s.orgId)]);
-  const current = orgs.find((o) => o.id === s.orgId) ?? { id: s.orgId, name: s.orgName ?? "Current organization" };
-  if (!orgs.some((o) => o.id === current.id)) orgs.unshift(current);
+  // Only live reports actively assigned to this org. Reads only: nothing here triggers a CRM sync.
+  const reports = await visibleReports(supabaseStore, s.orgId);
+  if (!reports.length) await logViewEmpty(supabaseStore, s);
+  const status = reports.length ? await dataStatus(s.orgId) : null;
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <>
-      <header style={{ background: "#fff", borderBottom: "1px solid #e5e5e5" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-          <strong style={{ fontSize: 18 }}>Report Engine</strong>
-          <UserMenu name={s.name} email={s.email} currentOrg={current} orgs={orgs} />
-        </div>
-      </header>
-
+      <AppHeader session={s} />
       <main style={{ maxWidth: 880, margin: "32px auto", padding: "0 24px" }}>
-        <p style={{ color: "#666", marginTop: 0 }}>Custom reports on your MeasureSquare CRM data.</p>
         {error === "switch_failed" && (
           <div style={{ background: "#fef3f2", border: "1px solid #fecdca", color: "#b42318", borderRadius: 10, padding: "10px 16px", marginBottom: 12, fontSize: 14 }}>
             Couldn&apos;t switch organization. Please try again.
           </div>
         )}
-        <RefreshPanel status={status} />
-        <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
-          {REPORTS.map((r) => (
-            <div key={r.id} style={{ background: "#fff", border: "1px solid #e5e5e5", borderRadius: 10, padding: 16 }}>
-              <strong>{r.name}</strong>
-              <div style={{ color: "#666", fontSize: 14, margin: "4px 0 10px" }}>{r.desc}</div>
-              <span style={{ color: "#999", fontSize: 13 }}>Coming soon</span>
+
+        {!reports.length ? (
+          <div style={{ ...card, padding: 32, textAlign: "center" }}>
+            <div style={{ fontWeight: 600, fontSize: 17, marginBottom: 6 }}>No reports are set up for your company yet.</div>
+            <div style={{ color: "#666" }}>Contact your MeasureSquare account manager.</div>
+          </div>
+        ) : (
+          <>
+            <p style={{ color: "#666", marginTop: 0 }}>Custom reports on your MeasureSquare CRM data.</p>
+            {status && <RefreshPanel status={status} />}
+            <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
+              {reports.map((r) => (
+                <div key={r.id} style={card}>
+                  <strong>{r.name}</strong>
+                  <div style={{ color: "#666", fontSize: 14, margin: "4px 0 12px" }}>{r.description}</div>
+                  <form action={`/api/reports/${r.id}`} method="get" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: 0 }}>
+                    <input type="hidden" name="format" value="xlsx" />
+                    <label style={{ fontSize: 13, color: "#444" }}>
+                      As of{" "}
+                      <input type="date" name="asOf" defaultValue={today} required style={{ font: "inherit", fontSize: 13, padding: "4px 6px", border: "1px solid #ddd", borderRadius: 6 }} />
+                    </label>
+                    <button type="submit" style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #1f4fd1", background: "#fff", color: "#1f4fd1", cursor: "pointer", fontSize: 13 }}>
+                      Download Excel
+                    </button>
+                  </form>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </main>
     </>
   );

@@ -12,6 +12,10 @@ export type Session = {
   homeOrgId?: string; // missing on sessions created before org switching; those are re-signed-in
   email: string | null;
   name: string | null;
+  /** id4 token had isSuper=true and a @measuresquare.com email at sign-in. Admin requests re-check (see isSuperAdmin). */
+  superClaim?: boolean;
+  /** Display hint only (shows the Admin link). Never used for authorization. */
+  isSuperAdmin?: boolean;
 };
 
 const COOKIE = "re_session";

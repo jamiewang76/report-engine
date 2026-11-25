@@ -4,6 +4,8 @@ import { setSession } from "@/lib/auth/session";
 import { saveConnection } from "@/lib/crm/connection";
 import { fetchUserOrgs } from "@/lib/crm/orgs";
 import { env } from "@/lib/env";
+import { isSuperAdmin, recordSignIn, superClaimFromToken } from "@/lib/access";
+import { supabaseStore } from "@/lib/access/store";
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
@@ -21,7 +23,10 @@ export async function GET(req: NextRequest) {
   }
   const orgName = who.orgName ?? userOrgs?.find((o) => o.id === who.orgId)?.name ?? null;
   await saveConnection({ orgId: who.orgId, userId: who.userId, email: who.email, name: who.name, orgName }, tokens, userOrgs);
-  await setSession({ userId: who.userId, orgId: who.orgId, orgName, homeOrgId: who.orgId, email: who.email, name: who.name });
+  await recordSignIn(supabaseStore, { orgId: who.orgId, orgName, userId: who.userId, email: who.email, name: who.name });
+  const superClaim = superClaimFromToken(who.claims.access);
+  const session = { userId: who.userId, orgId: who.orgId, orgName, homeOrgId: who.orgId, email: who.email, name: who.name, superClaim };
+  await setSession({ ...session, isSuperAdmin: await isSuperAdmin(supabaseStore, session) });
   const res = NextResponse.redirect(`${env.appUrl}/`);
   res.cookies.delete("pkce_verifier");
   res.cookies.delete("oauth_state");

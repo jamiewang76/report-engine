@@ -3,11 +3,13 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth/session";
 import { syncOrg } from "@/lib/sync";
 import { env } from "@/lib/env";
+import { orgHasActiveReports } from "@/lib/access";
+import { supabaseStore } from "@/lib/access/store";
 
 export const maxDuration = 300;
 
 /**
- * GET  (Vercel cron, Bearer CRON_SECRET): sync every connected org, one at a time.
+ * GET  (Vercel cron, Bearer CRON_SECRET): sync every connected org that has at least one active report, one at a time.
  * POST (signed-in user): sync only the user's own org ("Refresh now").
  */
 export async function GET(req: NextRequest) {
@@ -18,6 +20,7 @@ export async function GET(req: NextRequest) {
   const orgs = [...new Set((data ?? []).map((r) => r.org_id as string))];
   const results: Record<string, unknown> = {};
   for (const org of orgs) {
+    if (!(await orgHasActiveReports(supabaseStore, org))) { results[org] = { skipped: "no active reports" }; continue; }
     try { results[org] = await syncOrg(org); } catch (e) { results[org] = { error: String(e) }; }
   }
   return NextResponse.json(results);
@@ -26,6 +29,9 @@ export async function GET(req: NextRequest) {
 export async function POST() {
   const s = await getSession();
   if (!s) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!(await orgHasActiveReports(supabaseStore, s.orgId))) {
+    return NextResponse.json({ error: "No reports are set up for your company yet." }, { status: 403 });
+  }
   // Simple per-org rate limit: one manual refresh per 15 minutes.
   const { data: recent } = await db().from("sync_runs").select("started_at").eq("org_id", s.orgId)
     .gte("started_at", new Date(Date.now() - 15 * 60_000).toISOString()).limit(1);

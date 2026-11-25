@@ -4,6 +4,8 @@ import { accessTokenFor, saveSwitchedConnection } from "@/lib/crm/connection";
 import { claimsOf, switchOrgToken } from "@/lib/crm/orgs";
 import { listUserOrgs } from "@/lib/orgs";
 import { env } from "@/lib/env";
+import { recordSignIn } from "@/lib/access";
+import { supabaseStore } from "@/lib/access/store";
 
 /**
  * Switch the session to another org the user belongs to. Form POST from the user menu.
@@ -21,6 +23,8 @@ export async function POST(req: NextRequest) {
       const token = await switchOrgToken(await accessTokenFor(s.homeOrgId, s.userId), target);
       const org = { id: target, name: claimsOf(token).orgName ?? known.name };
       await saveSwitchedConnection({ userId: s.userId, email: s.email, name: s.name }, s.homeOrgId, org);
+      // A successful switch proves membership, so it counts as a sign-in to that org.
+      await recordSignIn(supabaseStore, { orgId: org.id, orgName: org.name, userId: s.userId, email: s.email, name: s.name });
       known.name = org.name;
     } catch (e) {
       console.error("[switch-org] failed", target, e);

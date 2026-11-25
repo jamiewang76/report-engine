@@ -19,9 +19,16 @@ Custom reports on MeasureSquare CRM data. Customers sign in with their own Measu
 1. `npm install`
 2. Copy `.env.example` → `.env.local` and fill in.
 3. **id4:** register a client (confidential, authorization code + PKCE, `offline_access` allowed), redirect URI `${APP_URL}/api/auth/callback`.
-4. **Supabase:** run the files in `supabase/migrations/` in order (`0001_init.sql`, `0002_connection_names.sql`, `0003_org_switching.sql`).
+4. **Supabase:** run the files in `supabase/migrations/` in order (`0001` … `0004_report_access.sql`). After your first sign-in, optionally run `supabase/seed/super_admin_jamie.sql`; `supabase/tests/report_events_immutable.sql` checks the activity log is insert-only.
 5. `npm run dev`, then sign in at `http://localhost:3000`.
 6. **Vercel:** set the same env vars; the cron in `vercel.json` calls `/api/sync` with `CRON_SECRET`.
+
+## Access control & admin
+
+- Reports live in `src/lib/reports/registry.ts` (status `draft` | `live` | `retired`, per-org `configSchema`, JSON + XLSX handlers). Only **live** reports can be assigned.
+- Customers see and run only reports with an active row in `report_assignments` for their org; `/api/reports/[id]` returns 401/403 otherwise. Every view/export is logged to `report_events` (insert-only). Sync runs only for orgs with an active report.
+- Organizations and users are recorded automatically on sign-in and org switch. Never add them by hand.
+- **Super Admin** = `@measuresquare.com` email **and** (id4 `isSuper=true` or a row in `super_admins`), re-checked on every admin request. Admin console at `/admin`; it never reads customers' cached CRM data.
 
 ## Phase 0: data probe (run first)
 
@@ -35,7 +42,7 @@ Answers: which token claim carries the org id (update `identityFromTokens()` in 
 
 | Report | Pilot | Status | Data |
 |---|---|---|---|
-| A/R Aging | Design Construct | ✅ built (`src/lib/reports/arAging.ts`, tested) | Invoices: due date, amount, paid, credits, retainage |
+| A/R Aging | Design Construct | ✅ live (`src/lib/reports/arAging.ts`, tested); settings: priority threshold, include deposits | Invoices: due date, amount, paid, credits, retainage |
 | Bid Timing | Select Interiors | ⏳ after probe | Deals: created, bid due; takeoff/proposal from timeline or custom fields |
 | Financial Summary | M&P Flooring | ⏳ partial | Invoiced revenue + tax by month now; payments + COGS need the Payments/Bills endpoints |
 | Forecast, WIP variants, labor budget, claims | Provincial, Coverings, PK, Design Floors, Precision, Goduco, MeasureUp, MSS | Phase 2 | Standard API |

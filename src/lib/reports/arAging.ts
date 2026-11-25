@@ -19,7 +19,11 @@ export type AgingInvoice = {
   credit_applied: number | null;
   retainage_amount: number | null;
   retainage_due_date: string | null;
+  is_deposit?: boolean | null;
 };
+
+/** Per-org settings (validated by the registry configSchema). */
+export type ArAgingOptions = { includeDeposits?: boolean; priorityThreshold?: number | null };
 
 export const BUCKETS = ["Current", "1-30", "31-60", "61-90", "90+"] as const;
 export type Bucket = (typeof BUCKETS)[number];
@@ -39,6 +43,8 @@ export type AgingRow = {
   daysPastDue: number;
   bucket: Bucket;
   partiallyPaid: boolean;
+  isDeposit: boolean;
+  priority: boolean;          // open balance + retainage at or above the org's priority threshold
 };
 
 const DAY = 86_400_000;
@@ -52,9 +58,12 @@ export function bucketFor(daysPastDue: number): Bucket {
   return "90+";
 }
 
-export function buildArAging(invoices: AgingInvoice[], asOf: Date = new Date()) {
+export function buildArAging(invoices: AgingInvoice[], asOf: Date = new Date(), opts: ArAgingOptions = {}) {
+  const includeDeposits = opts.includeDeposits ?? true;
+  const threshold = opts.priorityThreshold ?? null;
   const rows: AgingRow[] = [];
   for (const i of invoices) {
+    if (!includeDeposits && i.is_deposit) continue;
     const amount = i.amount ?? 0;
     const paid = i.paid_amount ?? 0;
     const credit = i.credit_applied ?? 0;
@@ -83,6 +92,8 @@ export function buildArAging(invoices: AgingInvoice[], asOf: Date = new Date()) 
       daysPastDue,
       bucket: bucketFor(daysPastDue),
       partiallyPaid: paid > 0,
+      isDeposit: Boolean(i.is_deposit),
+      priority: threshold != null && openBalance + retainageHeld >= threshold,
     });
   }
   rows.sort((a, b) => b.daysPastDue - a.daysPastDue);
