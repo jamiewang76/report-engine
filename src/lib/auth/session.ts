@@ -4,7 +4,15 @@ import { cookies } from "next/headers";
 import { env } from "@/lib/env";
 
 /** Browser session = signed cookie with user + org ids only. CRM tokens never go to the browser. */
-export type Session = { userId: string; orgId: string; orgName?: string | null; email: string | null; name: string | null };
+/** orgId = the org currently being viewed; homeOrgId = the org id4 signed the user in to (holds the refresh token). */
+export type Session = {
+  userId: string;
+  orgId: string;
+  orgName?: string | null;
+  homeOrgId?: string; // missing on sessions created before org switching; those are re-signed-in
+  email: string | null;
+  name: string | null;
+};
 
 const COOKIE = "re_session";
 const key = () => new TextEncoder().encode(env.sessionSecret);

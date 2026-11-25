@@ -1,21 +1,19 @@
 import { db } from "@/lib/db";
-
-export type OrgOption = { orgId: string; orgName: string | null };
+import type { CrmOrg } from "@/lib/crm/orgs";
 
 /**
- * Orgs this user has connected (signed in to) and not revoked. Only these can be switched to:
- * each one has its own refresh token issued by id4 for that org, so syncs stay scoped to it.
- * Never selects refresh_token_enc.
+ * Orgs this user belongs to, as the CRM reported at sign-in (stored on their sign-in connection row).
+ * Falls back to the orgs they have connected in this app. Never selects refresh_token_enc.
  */
-export async function listUserOrgs(userId: string): Promise<OrgOption[]> {
-  const { data, error } = await db()
-    .from("connections")
-    .select("org_id, org_name")
-    .eq("user_id", userId)
-    .eq("revoked", false)
-    .order("org_name", { ascending: true });
+export async function listUserOrgs(userId: string, homeOrgId: string): Promise<CrmOrg[]> {
+  const { data: home } = await db().from("connections").select("user_orgs")
+    .eq("org_id", homeOrgId).eq("user_id", userId).eq("revoked", false).maybeSingle();
+  if (Array.isArray(home?.user_orgs) && home.user_orgs.length) return home.user_orgs as CrmOrg[];
+
+  const { data, error } = await db().from("connections").select("org_id, org_name")
+    .eq("user_id", userId).eq("revoked", false);
   if (error) throw error;
-  return (data ?? []).map((r) => ({ orgId: r.org_id as string, orgName: (r.org_name as string | null) ?? null }));
+  return (data ?? []).map((r) => ({ id: r.org_id as string, name: (r.org_name as string | null) ?? (r.org_id as string) }));
 }
 
 export type DataStatus = {

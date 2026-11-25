@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { dataStatus, listUserOrgs } from "@/lib/orgs";
 import UserMenu from "./components/UserMenu";
@@ -11,8 +12,11 @@ const REPORTS = [
   { id: "financial-summary", name: "Financial Summary", desc: "Invoiced revenue and tax by month (payments & COGS pending API)." },
 ];
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const s = await getSession();
+  // Sessions from before org switching lack homeOrgId/names: re-run sign-in (silent if the id4 session is alive).
+  if (s && !s.homeOrgId) redirect("/api/auth/login");
+  const { error } = await searchParams;
 
   if (!s) {
     return (
@@ -27,21 +31,26 @@ export default async function Home() {
   }
 
   // Reads only: nothing here triggers a CRM sync. Data refreshes only via the button (or the nightly job).
-  const [orgs, status] = await Promise.all([listUserOrgs(s.userId), dataStatus(s.orgId)]);
-  const current = orgs.find((o) => o.orgId === s.orgId) ?? { orgId: s.orgId, orgName: s.orgName ?? null };
-  const otherOrgs = orgs.filter((o) => o.orgId !== s.orgId);
+  const [orgs, status] = await Promise.all([listUserOrgs(s.userId, s.homeOrgId!), dataStatus(s.orgId)]);
+  const current = orgs.find((o) => o.id === s.orgId) ?? { id: s.orgId, name: s.orgName ?? "Current organization" };
+  if (!orgs.some((o) => o.id === current.id)) orgs.unshift(current);
 
   return (
     <>
       <header style={{ background: "#fff", borderBottom: "1px solid #e5e5e5" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "10px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <strong style={{ fontSize: 18 }}>Report Engine</strong>
-          <UserMenu name={s.name} email={s.email} currentOrg={current} otherOrgs={otherOrgs} />
+          <UserMenu name={s.name} email={s.email} currentOrg={current} orgs={orgs} />
         </div>
       </header>
 
       <main style={{ maxWidth: 880, margin: "32px auto", padding: "0 24px" }}>
         <p style={{ color: "#666", marginTop: 0 }}>Custom reports on your MeasureSquare CRM data.</p>
+        {error === "switch_failed" && (
+          <div style={{ background: "#fef3f2", border: "1px solid #fecdca", color: "#b42318", borderRadius: 10, padding: "10px 16px", marginBottom: 12, fontSize: 14 }}>
+            Couldn&apos;t switch organization. Please try again.
+          </div>
+        )}
         <RefreshPanel status={status} />
         <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
           {REPORTS.map((r) => (
