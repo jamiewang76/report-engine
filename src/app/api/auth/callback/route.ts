@@ -13,9 +13,9 @@ export async function GET(req: NextRequest) {
   }
   const tokens = await exchangeCode(code, verifier);
   const who = identityFromTokens(tokens, await fetchUserInfo(tokens.access_token));
-  // PHASE 0 (temporary): log claim names/values (never the tokens themselves) so we can map the real
-  // org claims. Remove once identityFromTokens() is finalized.
-  console.log("[claims-probe]", JSON.stringify(who.claims));
+  // PHASE 0 (temporary): log claim *names* only, to confirm the report-engine client's token has the same
+  // claims as the CRM's. Remove once confirmed.
+  console.log("[claims-probe]", JSON.stringify(Object.fromEntries(Object.entries(who.claims).map(([k, v]) => [k, Object.keys(v)]))));
   if (!who.userId || !who.orgId) {
     // Phase 0: if this fires, look at `claims` and update identityFromTokens() with the real org claim name.
     return NextResponse.json({ error: "Could not determine user/organization from token" }, { status: 500 });

@@ -101,14 +101,16 @@ export function identityFromTokens(t: TokenSet, userInfo: Record<string, unknown
     for (const src of sources) for (const k of keys) if (src[k] != null && src[k] !== "") return String(src[k]);
     return null;
   };
-  const given = pick("given_name");
-  const family = pick("family_name");
+  // id4 claim names confirmed from a real CRM token (2026-11-25): the token carries only the user's
+  // *current* org (currentOrganizationId/Name, mirrored in organizationId/Name); there is no org list.
+  const given = pick("firstName", "given_name");
+  const family = pick("lastName", "family_name");
   return {
     userId: pick("sub"),
-    email: pick("email"),
-    name: pick("name") ?? ([given, family].filter(Boolean).join(" ") || pick("preferred_username")),
-    orgId: pick("organization_id", "organizationId", "org_id", "tenant_id", "OrganizationId"),
-    orgName: pick("organization_name", "organizationName", "org_name", "tenant_name", "OrganizationName", "company_name"),
+    email: pick("email", "loginAccount"),
+    name: pick("fullName", "name") ?? ([given, family].filter(Boolean).join(" ") || pick("preferred_username")),
+    orgId: pick("currentOrganizationId", "organizationId"),
+    orgName: pick("currentOrganizationName", "organizationName"),
     claims: { access, idToken, userInfo },
   };
 }
