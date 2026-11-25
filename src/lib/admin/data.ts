@@ -17,7 +17,9 @@ const must = <T extends { error: unknown }>(r: T): T => {
 };
 
 export type OrgOverview = {
-  org_id: string; name: string; first_seen_at: string; last_seen_at: string;
+  org_id: string; name: string;
+  first_seen_at: string | null; last_seen_at: string | null; // first/last sign-in; null if added by an admin and nobody signed in yet
+  added_by: string | null; added_at: string | null;
   active_reports: number; last_sync_at: string | null; last_export_at: string | null; user_count: number;
 };
 
@@ -40,6 +42,44 @@ export type Assignment = {
   id: number; org_id: string; report_id: string; config: Record<string, unknown>;
   assigned_by: string; assigned_at: string; revoked_at: string | null; revoked_by: string | null;
 };
+
+/** Orgs already in the app whose name or id matches. Cheap (no CRM call). */
+export async function searchKnownOrgs(q: string, limit = 25): Promise<OrgOverview[]> {
+  const term = q.trim().replace(/[%,()"\\*:]/g, "");
+  if (!term) return [];
+  const { data } = must(await db().from("admin_org_overview").select("*")
+    .or(`name.ilike.%${term}%,org_id.eq.${term}`).order("name").limit(limit));
+  return (data ?? []) as OrgOverview[];
+}
+
+/** Add a CRM org found via search before anyone from it has signed in. No-op if it already exists. */
+export async function ensureOrgForAdmin(s: Session, org: { id: string; name: string }) {
+  must(await db().from("organizations").upsert(
+    { org_id: org.id, name: org.name, first_seen_at: null, last_seen_at: null, added_by: s.userId, added_at: new Date().toISOString() },
+    { onConflict: "org_id", ignoreDuplicates: true },
+  ));
+}
+
+/**
+ * Assign several live reports at once with default settings (edit settings afterwards per report).
+ * `org` must come from a server-side CRM lookup or the organizations table, never from the form.
+ */
+export async function assignReports(s: Session, org: { id: string; name: string }, reportIds: string[]) {
+  if (!reportIds.length) throw new AdminError("Select at least one report");
+  await ensureOrgForAdmin(s, org);
+  const done: string[] = [];
+  const failed: string[] = [];
+  for (const id of [...new Set(reportIds)]) {
+    try {
+      await assignReport(s, org.id, id, {});
+      done.push(getReport(id)?.name ?? id);
+    } catch (e) {
+      if (!(e instanceof AdminError)) throw e;
+      failed.push(`${getReport(id)?.name ?? id}: ${e.message}`);
+    }
+  }
+  return { done, failed };
+}
 
 export async function orgDetail(orgId: string) {
   const [{ data: org }, { data: assignments }, users, events] = await Promise.all([
@@ -94,7 +134,7 @@ function filtered(f: ActivityFilters, opts: { count?: boolean } = {}) {
   if (f.reportId) q = q.eq("report_id", f.reportId);
   if (f.action) q = q.eq("action", f.action);
   if (f.user) {
-    const u = f.user.replace(/[%,()"\*:]/g, "").trim();
+    const u = f.user.replace(/[%,()"\\*:]/g, "").trim();
     q = q.or(`user_email.ilike.%${u}%,user_id.eq.${u}`);
   }
   if (dateOk(f.from)) q = q.gte("created_at", `${f.from}T00:00:00Z`);

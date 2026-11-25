@@ -52,8 +52,17 @@ export async function saveSwitchedConnection(
   if (error) throw error;
 }
 
+/**
+ * Short-lived access tokens, cached per server instance until shortly before they expire, so repeated admin searches
+ * or switches don't hit id4 (and rotate the refresh token) every time. Server memory only; never persisted.
+ */
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
 /** Fresh access token from a sign-in row's refresh token (stores the rotated refresh token). */
 async function accessTokenFromSignIn(orgId: string, userId: string): Promise<string> {
+  const key = `${orgId}|${userId}`;
+  const hit = tokenCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.token;
   const { data, error } = await db().from("connections").select("refresh_token_enc")
     .eq("org_id", orgId).eq("user_id", userId).eq("revoked", false).maybeSingle();
   if (error || !data?.refresh_token_enc) throw new Error(`No active sign-in connection for org ${orgId}`);
@@ -63,6 +72,7 @@ async function accessTokenFromSignIn(orgId: string, userId: string): Promise<str
       .update({ refresh_token_enc: encrypt(t.refresh_token), updated_at: new Date().toISOString() })
       .eq("org_id", orgId).eq("user_id", userId);
   }
+  tokenCache.set(key, { token: t.access_token, expiresAt: Date.now() + Math.max(0, (t.expires_in ?? 0) - 120) * 1000 });
   return t.access_token;
 }
 

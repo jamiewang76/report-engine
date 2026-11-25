@@ -49,10 +49,12 @@ export const supabaseStore: AccessStore = {
     const ts = now.toISOString();
     if (name) {
       must(await db().from("organizations").upsert({ org_id: orgId, name, last_seen_at: ts }, { onConflict: "org_id" }));
-      return;
+    } else {
+      must(await db().from("organizations").upsert({ org_id: orgId, name: orgId, first_seen_at: ts, last_seen_at: ts }, { onConflict: "org_id", ignoreDuplicates: true }));
+      must(await db().from("organizations").update({ last_seen_at: ts }).eq("org_id", orgId));
     }
-    must(await db().from("organizations").upsert({ org_id: orgId, name: orgId, first_seen_at: ts, last_seen_at: ts }, { onConflict: "org_id", ignoreDuplicates: true }));
-    must(await db().from("organizations").update({ last_seen_at: ts }).eq("org_id", orgId));
+    // Orgs added from the admin console before anyone signed in have no first sign-in yet: this is it.
+    must(await db().from("organizations").update({ first_seen_at: ts }).eq("org_id", orgId).is("first_seen_at", null));
   },
 
   async upsertOrgUser(u, now) {

@@ -172,3 +172,16 @@ describe("report_events is insert-only (migration)", () => {
     expect(sql).not.toMatch(/create policy[^;]*report_events/i);
   });
 });
+
+describe("org added by a Super Admin before anyone signs in", () => {
+  it("first sign-in fills first_seen_at; name refreshes from the token", async () => {
+    const m = memoryStore();
+    m.addByAdmin("orgZ", "Zeta Tile (from CRM search)");
+    expect(m.orgs.get("orgZ")).toEqual({ name: "Zeta Tile (from CRM search)", first_seen_at: null, last_seen_at: null });
+    m.assign("orgZ", "ar-aging");
+    const t = new Date("2026-12-01T09:00:00Z");
+    await recordSignIn(m.store, { orgId: "orgZ", orgName: "Zeta Tile", userId: "u7", email: "a@zeta.com", name: "A" }, t);
+    expect(m.orgs.get("orgZ")).toEqual({ name: "Zeta Tile", first_seen_at: t, last_seen_at: t });
+    expect(await checkReportAccess(m.store, session({ orgId: "orgZ", userId: "u7" }), "ar-aging")).toMatchObject({ ok: true });
+  });
+});
