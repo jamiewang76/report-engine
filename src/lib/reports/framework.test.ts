@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMoney, dateInTimeZone, EMPTY, formatDate, formatValue, subMoney, sumMoney, weightedAverage } from "./format";
-import { describeFilters, FilterError, filtersToQuery, parseFilters, resolvePreset } from "./filters";
+import { describeFilters, FilterError, filtersToQuery, fiscalYearLabel, fiscalYearOf, fiscalYearRange, parseFilters, resolvePreset } from "./filters";
 import { aggregate, buildMatrix, groupRows, monthColumns, resortGroups, sortRows } from "./grouping";
 import { workbookFileName } from "./excel";
 import type { ColumnDef, FilterDef, Row } from "./types";
@@ -134,7 +134,7 @@ describe("filters (URL query string)", () => {
 
   it("defaults need no clicks; values round-trip through the URL; invalid input rejected", () => {
     const d = parseFilters(defs, new URLSearchParams(), today);
-    expect(d).toEqual({ asOf: today, ranges: { invoiced: { preset: "this_month", from: "2026-11-01", to: "2026-11-30" } }, multi: { owner: [] } });
+    expect(d).toEqual({ asOf: today, ranges: { invoiced: { preset: "this_month", from: "2026-11-01", to: "2026-11-30" } }, multi: { owner: [] }, choice: {}, windows: {} });
     expect(filtersToQuery(defs, d, today).toString()).toBe("");
     const q = new URLSearchParams("asOf=2026-10-31&invoiced=custom&invoicedFrom=2026-01-01&invoicedTo=2026-03-31&owner=Ann&owner=Bob");
     const f = parseFilters(defs, q, today);
@@ -150,5 +150,34 @@ describe("Excel file name", () => {
     expect(workbookFileName("ar-aging", "Design Construct Flooring LLC", "2026-11-25")).toBe("ar-aging_Design-Construct-Flooring_2026-11-25.xlsx");
     expect(workbookFileName("ar-aging", "M&P Flooring, Inc.", "2026-11-25")).toBe("ar-aging_MP-Flooring_2026-11-25.xlsx");
     expect(workbookFileName("ar-aging", "", "2026-11-25")).toBe("ar-aging_company_2026-11-25.xlsx");
+  });
+});
+
+describe("year, choice and window filters", () => {
+  const defs: FilterDef[] = [
+    { key: "year", label: "Year", kind: "year" },
+    { key: "period", label: "Period", kind: "choice", options: [{ value: "month", label: "Month" }, { value: "quarter", label: "Quarter" }], default: "month" },
+    { key: "in", label: "Period shown", kind: "window" },
+  ];
+
+  it("fiscal years are named by the year they end in", () => {
+    expect(fiscalYearOf("2026-06-30", 7)).toBe(2026);
+    expect(fiscalYearOf("2026-07-01", 7)).toBe(2027);
+    expect(fiscalYearOf("2026-12-31", 1)).toBe(2026);
+    expect(fiscalYearRange(2026, 7)).toEqual({ from: "2025-07-01", to: "2026-06-30" });
+    expect(fiscalYearRange(2026, 1)).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(fiscalYearLabel(2026, 7)).toBe("FY2026 (Jul 2025 – Jun 2026)");
+  });
+
+  it("defaults: current (fiscal) year, default choice, no window; round-trip; validation", () => {
+    expect(parseFilters(defs, new URLSearchParams(), "2026-11-25")).toMatchObject({ choice: { year: "2026", period: "month" }, windows: { in: null } });
+    expect(parseFilters(defs, new URLSearchParams(), "2026-11-25", { fiscalYearStartMonth: 7 }).choice.year).toBe("2027");
+    const q = new URLSearchParams("year=2025&period=quarter&in=2025-04-01_2025-06-30");
+    const f = parseFilters(defs, q, "2026-11-25");
+    expect(filtersToQuery(defs, f, "2026-11-25").toString()).toBe(q.toString());
+    expect(describeFilters(defs, f)).toEqual(["Year: 2025", "Period: Quarter", "Period shown: Apr 1, 2026 – Jun 30, 2026".replace(/2026/g, "2025")]);
+    expect(() => parseFilters(defs, new URLSearchParams("year=26"), "2026-11-25")).toThrow(FilterError);
+    expect(() => parseFilters(defs, new URLSearchParams("period=week"), "2026-11-25")).toThrow(FilterError);
+    expect(() => parseFilters(defs, new URLSearchParams("in=2026-05-01_2026-04-01"), "2026-11-25")).toThrow(FilterError);
   });
 });

@@ -48,6 +48,18 @@ export function priorityFor(daysPastDue: number, openBalance: number, threshold:
   return "Low";
 }
 
+/**
+ * The CRM API has no payment-term field on invoices, so Terms is derived from the dates when not cached:
+ * due date − invoice date = 0 → "Due on receipt", N days → "Net N".
+ */
+export function termsFor(term: string | null | undefined, invoiceDate: string | null, dueDate: string | null): string | null {
+  if (term) return term;
+  if (!invoiceDate || !dueDate) return null;
+  const days = daysBetween(invoiceDate, dueDate);
+  if (days < 0) return null;
+  return days === 0 ? "Due on receipt" : `Net ${days}`;
+}
+
 const NO_CUSTOMER = "(No customer)";
 const NO_JOB = "(No job)";
 const jobLabel = (i: ArInvoice) => [i.job_number, i.deal_name].filter(Boolean).join(" - ") || NO_JOB;
@@ -82,7 +94,7 @@ export function invoiceRow(i: ArInvoice, asOf: string, cfg: ArConfig): Row | nul
     owner: i.owner_name,
     invoiceDate,
     dueDate,
-    terms: i.payment_term,
+    terms: termsFor(i.payment_term, invoiceDate, dueDate),
     daysPastDue,
     bucket,
     amount,

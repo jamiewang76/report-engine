@@ -44,7 +44,8 @@ export async function isSuperAdmin(store: AccessStore, s: Session | null): Promi
 // ---------- Report access ----------
 
 export type AccessResult =
-  | { ok: true; report: ReportModule; config: Record<string, unknown>; assignmentId: number }
+  /** preview: a Super Admin viewing a built draft report on their current org (default config, not assigned). */
+  | { ok: true; report: ReportModule; config: Record<string, unknown>; assignmentId: number | null; preview?: boolean }
   | { ok: false; status: 401 | 403 | 404 | 409; error: string };
 
 export async function checkReportAccess(store: AccessStore, s: Session | null, reportId: string): Promise<AccessResult> {
@@ -52,6 +53,14 @@ export async function checkReportAccess(store: AccessStore, s: Session | null, r
   const report = getReport(reportId);
   if (!report) return { ok: false, status: 404, error: "Unknown report" };
   const forbidden = { ok: false as const, status: 403 as const, error: "This report is not available for your organization" };
+  if (report.status === "draft") {
+    // Draft preview for MeasureSquare staff only (re-checked every request), so drafts can be reviewed on a test org
+    // without assigning them. Customers never see drafts, even with an assignment row.
+    if (!report.build || !(await isSuperAdmin(store, s))) return forbidden;
+    const cfg = validateConfig(report.configSchema, {});
+    if (!cfg.ok) return forbidden;
+    return { ok: true, report, config: cfg.value, assignmentId: null, preview: true };
+  }
   if (report.status !== "live") return forbidden;
   const a = (await store.activeAssignments(s.orgId)).find((x) => x.reportId === reportId && x.orgId === s.orgId);
   if (!a) return forbidden;
@@ -64,6 +73,15 @@ export async function checkReportAccess(store: AccessStore, s: Session | null, r
 export async function visibleReports(store: AccessStore, orgId: string): Promise<ReportModule[]> {
   const assigned = new Set((await store.activeAssignments(orgId)).map((a) => a.reportId));
   return REPORTS.filter((r) => r.status === "live" && assigned.has(r.id));
+}
+
+/**
+ * Optional cache tables an org's sync must include: the dataSources of its assigned live reports, plus (for a Super Admin
+ * previewing drafts) those of built draft reports. Deals and invoices always sync.
+ */
+export async function syncTablesForOrg(store: AccessStore, orgId: string, opts: { includeDrafts?: boolean } = {}): Promise<string[]> {
+  const reports = [...(await visibleReports(store, orgId)), ...(opts.includeDrafts ? REPORTS.filter((r) => r.status === "draft" && r.build) : [])];
+  return [...new Set(reports.flatMap((r) => r.dataSources.tables))];
 }
 
 /** Sync only orgs that can actually see a report. */

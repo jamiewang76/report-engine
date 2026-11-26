@@ -47,7 +47,7 @@ export type DealDetail = DealListItem & {
   otherCostAmount?: number | null;
 };
 
-/** GET /api/Invoices -> PageResultDto<InvoiceSummary> */
+/** GET /api/Invoices -> PageResultDto<InvoiceSummary>. All money fields are integer CENTS (swagger int64). */
 export type InvoiceSummary = {
   id: string;
   number: string;
@@ -63,6 +63,9 @@ export type InvoiceSummary = {
   createdOn: string;
   isDeposit?: boolean;
   appliedCreditNoteAmount?: number | null;
+  depositInvoicedAmount?: number | null;
+  lastUpdatedOn?: string | null;
+  ownerName?: string | null;
 };
 
 /** GET /api/Invoices/{id} -> InvoiceDto (extra fields needed for retainage + tax) */

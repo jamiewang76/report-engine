@@ -1,7 +1,7 @@
 import type { ReportModule } from "./types";
 import { arAging } from "./ar-aging";
 import { definition as bidTiming } from "./bid-timing/definition";
-import { definition as financialSummary } from "./financial-summary/definition";
+import { financialSummary } from "./financial-summary";
 import { definition as provincialForecast } from "./provincial-forecast/definition";
 import { definition as wipByStage } from "./wip-by-stage/definition";
 

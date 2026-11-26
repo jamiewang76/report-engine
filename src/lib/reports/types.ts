@@ -34,7 +34,13 @@ export type DatePreset = "this_month" | "last_month" | "this_quarter" | "last_qu
 export type FilterDef =
   | { key: string; label: string; kind: "asOf" }
   | { key: string; label: string; kind: "dateRange"; dateField: string; defaultPreset: DatePreset }
-  | { key: string; label: string; kind: "multi"; searchable?: boolean; allLabel: string };
+  | { key: string; label: string; kind: "multi"; searchable?: boolean; allLabel: string }
+  /** Fiscal/calendar year; default = the year containing today. Options come from filterOptions(data)[key]. */
+  | { key: string; label: string; kind: "year" }
+  /** One of a fixed list (e.g. Period: Month | Quarter). */
+  | { key: string; label: string; kind: "choice"; options: FilterOption[]; default: string }
+  /** Drill-down date window set by clicking a row (not shown in the filter bar): "<from>_<to>" (YYYY-MM-DD). */
+  | { key: string; label: string; kind: "window" };
 
 export type FilterOption = { value: string; label: string };
 
@@ -43,6 +49,10 @@ export type ResolvedFilters = {
   asOf: string | null; // YYYY-MM-DD
   ranges: Record<string, { preset: DatePreset; from: string; to: string }>;
   multi: Record<string, string[]>;
+  /** year (as "2026") and choice filters */
+  choice: Record<string, string>;
+  /** window filters: null = not set */
+  windows: Record<string, { from: string; to: string } | null>;
 };
 
 export type GroupingOption = {
@@ -74,6 +84,24 @@ export type MatrixViewSpec = {
   defaultSort?: { key: string; dir: "asc" | "desc" };
 };
 
+/** Main view as a flat table (e.g. one row per period) with a bold total row. */
+export type TableViewSpec = {
+  kind: "table";
+  labelKey: string; // first column (e.g. "period")
+  columns: string[];
+  totalLabel: string; // "Year Total"
+};
+
+/** A detail table (one row per record). A report may have several (standard §1 allows one; override to add more). */
+export type DetailSpec = {
+  id: string; // URL tab id
+  title: string; // tab label
+  sheetName: string; // Excel sheet
+  columns: string[];
+  defaultSort: { key: string; dir: "asc" | "desc" };
+  rowNoun: { one: string; many: string };
+};
+
 export type ReportDefinition = {
   id: string;
   name: string;
@@ -84,7 +112,12 @@ export type ReportDefinition = {
   dataSources: { tables: string[]; endpoints?: string[] };
   columns: ColumnDef[];
   filters: FilterDef[];
-  views: { main: GroupedViewSpec | MatrixViewSpec; detail?: { columns: string[]; defaultSort: { key: string; dir: "asc" | "desc" } } };
+  views: {
+    main: GroupedViewSpec | MatrixViewSpec | TableViewSpec;
+    detail?: { columns: string[]; defaultSort: { key: string; dir: "asc" | "desc" } };
+    /** Several detail tables instead of one (used instead of `detail`). */
+    details?: DetailSpec[];
+  };
   kpis?: KpiDef[];
   groupings: GroupingOption[];
   configSchema: ConfigSchema;
@@ -92,6 +125,8 @@ export type ReportDefinition = {
   limitations: Limitation[];
   overrides: Override[];
   rowNoun: { one: string; many: string }; // "invoice" / "invoices"
+  /** Always-on line for the header filters (e.g. which date each table uses). */
+  headerNote?: string;
 };
 
 // ---------- Results ----------
@@ -126,10 +161,25 @@ export type MatrixResult = {
   grandTotal: number;
 };
 
+export type TableResult = {
+  kind: "table";
+  labelColumn: ColumnDef;
+  columns: ColumnDef[];
+  rows: Row[]; // each may carry `_window` ("from_to") to drill into the details for that row
+  totals: Row;
+  totalLabel: string;
+  /** Window filter key + detail tab that a row click sets/opens. */
+  drill?: { filterKey: string; tab: string };
+};
+
+export type DetailResult = { id: string; title: string; sheetName: string; rowNoun: { one: string; many: string }; columns: ColumnDef[]; rows: Row[]; totals: Row };
+
 export type ReportBody = {
   kpis?: KpiValue[];
-  main: GroupedResult | MatrixResult;
+  main: GroupedResult | MatrixResult | TableResult;
   detail?: { columns: ColumnDef[]; rows: Row[]; totals: Row };
+  /** Several detail tables (see DetailSpec). */
+  details?: DetailResult[];
   totals: Row;
   notes: string[];
   limitations: Limitation[];
@@ -157,11 +207,25 @@ export type BuildInput<D, C = Record<string, unknown>> = {
   config: C;
   asOf: string; // YYYY-MM-DD; build() never reads the clock
   grouping: GroupingOption;
+  /** Org time zone (IANA), for bucketing timestamps into local calendar dates. */
+  timeZone: string;
 };
 
 /** A registered report: definition + (for built reports) data loader, option lister and pure build. */
 export type ReportModule<D = unknown> = ReportDefinition & {
   load?: (orgId: string, filters: ResolvedFilters) => Promise<D>;
-  filterOptions?: (data: D) => Record<string, FilterOption[]>;
+  filterOptions?: (data: D, config: Record<string, unknown>) => Record<string, FilterOption[]>;
   build?: (input: BuildInput<D>) => ReportBody;
 };
+
+/** All detail tables of a result, whether the report uses `detail` (one) or `details` (several). */
+export function detailsOf(r: Pick<ReportBody, "detail" | "details">, rowNoun?: { one: string; many: string }): DetailResult[] {
+  if (r.details) return r.details;
+  return r.detail ? [{ id: "detail", title: "Detail", sheetName: "Detail", rowNoun: rowNoun ?? { one: "row", many: "rows" }, ...r.detail }] : [];
+}
+
+/** Detail specs of a definition, same normalization as detailsOf. */
+export function detailSpecsOf(def: ReportDefinition): DetailSpec[] {
+  if (def.views.details) return def.views.details;
+  return def.views.detail ? [{ id: "detail", title: "Detail", sheetName: "Detail", rowNoun: def.rowNoun, ...def.views.detail }] : [];
+}

@@ -5,6 +5,7 @@ import { supabaseStore } from "@/lib/access/store";
 import { FilterError } from "@/lib/reports/filters";
 import { resortGroups } from "@/lib/reports/grouping";
 import { runReport } from "@/lib/reports/runner";
+import { detailsOf, detailSpecsOf } from "@/lib/reports/types";
 import AppHeader from "../../components/AppHeader";
 import ReportView, { type ViewState } from "../components/ReportView";
 import { PreparingData, RefreshButton } from "../components/SyncControls";
@@ -61,18 +62,21 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
   const def = access.report;
   const r = run.result;
   const sortKey = one(sp.sort);
+  const tabParam = one(sp.tab);
   const view: ViewState = {
     sort: sortKey ? { key: sortKey, dir: one(sp.dir) === "asc" ? "asc" : "desc" } : null,
-    tab: one(sp.tab) === "detail" && r.detail ? "detail" : "main",
+    tab: tabParam && detailsOf(r).some((d) => d.id === tabParam) ? tabParam : "main",
     page: Number(one(sp.page)) || 1,
   };
+  const detailSpec = detailSpecsOf(def).find((d) => d.id === view.tab);
+  const defaultSort = view.tab === "main" ? (def.views.main.kind === "grouped" ? def.views.main.defaultSort : null) : detailSpec?.defaultSort ?? null;
   if (view.sort && r.main.kind === "grouped" && r.main.columns.some((c) => c.key === view.sort!.key)) {
     r.main = { ...r.main, groups: resortGroups(r.main.groups, view.sort) };
   }
 
   await logEvent(supabaseStore, {
     orgId: session.orgId, userId: session.userId, userEmail: session.email, reportId, action: "view",
-    params: { version: r.meta.version, grouping: r.meta.grouping, filters: r.header.filters, tab: view.tab, ...r.meta.params },
+    params: { version: r.meta.version, grouping: r.meta.grouping, filters: r.header.filters, tab: view.tab, ...(access.preview ? { preview: true } : {}), ...r.meta.params },
     rowCount: r.rowCount,
   });
 
@@ -84,7 +88,9 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
       filters={run.filters}
       grouping={run.grouping}
       today={run.today}
-      view={{ ...view, sort: view.sort ?? (r.main.kind === "grouped" && view.tab === "main" && def.views.main.kind === "grouped" ? def.views.main.defaultSort : view.tab === "detail" ? def.views.detail?.defaultSort ?? null : null) }}
+      view={{ ...view, sort: view.sort ?? defaultSort }}
+      filterContext={run.filterContext}
+      preview={!!access.preview}
       refresh={<RefreshButton running={run.sync.running} />}
     />,
   );

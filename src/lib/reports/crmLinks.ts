@@ -14,3 +14,6 @@ export const jobUrl = (dealId: string | null | undefined) => link("/crm/sales/de
 export const invoiceUrl = (invoiceId: string | null | undefined, dealId?: string | null) => link("/crm/sales/invoices", invoiceId) ?? jobUrl(dealId);
 
 export const purchaseOrderUrl = (poId: string | null | undefined, dealId?: string | null) => link("/crm/purchases/purchaseOrders", poId) ?? jobUrl(dealId);
+
+/** TODO(crm-urls): work order page route not confirmed yet; links to the WO's job until it is. */
+export const workOrderUrl = (_woId: string | null | undefined, dealId?: string | null) => jobUrl(dealId);

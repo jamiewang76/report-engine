@@ -8,7 +8,7 @@ import { AS_OF, DATA } from "./invoices";
 export function sampleArAging(query: Record<string, string | string[]> = {}, groupingId = "customer"): ReportResult {
   const filters = parseFilters(definition.filters, query, AS_OF);
   const grouping = definition.groupings.find((g) => g.id === groupingId)!;
-  const body = build({ data: DATA, filters, config: { priorityThreshold: 25000, includeDeposits: true }, asOf: filters.asOf!, grouping });
+  const body = build({ data: DATA, filters, config: { priorityThreshold: 25000, includeDeposits: true }, asOf: filters.asOf!, grouping, timeZone: "America/Los_Angeles" });
   return {
     ...body,
     header: {

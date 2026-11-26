@@ -1,11 +1,11 @@
 import ExcelJS from "exceljs";
-import { aggregateOf, EXCEL_FORMAT, excelDate, formatDate, formatDateTime, isNumericType } from "./format";
+import { aggregateOf, EXCEL_FORMAT, excelFormatOf, excelDate, formatDate, formatDateTime, isNumericType } from "./format";
 import { leafRows } from "./grouping";
-import type { ColumnDef, GroupNode, ReportDefinition, ReportResult, Row } from "./types";
+import { detailsOf, type ColumnDef, type DetailResult, type GroupNode, type ReportDefinition, type ReportResult, type Row } from "./types";
 
 /**
- * Excel export per docs/report-standard.md §6. Sheets: Report (header block, Summary, main view), Detail (only when the
- * main view is aggregated), Notes. Every value is typed (numbers, fractions for %, real dates); totals use SUBTOTAL(9, …)
+ * Excel export per docs/report-standard.md §6. Sheets: Report (header block, Summary, main view), one sheet per detail
+ * table (named by the report: "Detail", or e.g. "Invoices" and "Committed Cost"), Notes. Every value is typed (numbers, fractions for %, real dates); totals use SUBTOTAL(9, …)
  * so they keep working when the customer filters; header rows bold; frozen panes; autofilter; widths set; no merges.
  */
 
@@ -39,7 +39,7 @@ function styleColumns(ws: ExcelJS.Worksheet, cols: ColumnDef[], firstCol = 1) {
   cols.forEach((c, i) => {
     const col = ws.getColumn(firstCol + i);
     col.width = c.width ?? Math.max(12, c.header.length + 2);
-    const fmt = EXCEL_FORMAT[c.type] ?? (c.type === "number" && c.decimals ? `#,##0.${"0".repeat(c.decimals)}` : undefined);
+    const fmt = excelFormatOf(c);
     if (fmt) col.numFmt = fmt;
     col.alignment = { horizontal: c.align ?? (isNumericType(c.type) ? "right" : "left") };
   });
@@ -151,6 +151,28 @@ function groupedBlock(ws: ExcelJS.Worksheet, r: ReportResult, start: number) {
   ws.properties.outlineProperties = { summaryBelow: true, summaryRight: false };
 }
 
+/** Flat main table (e.g. one row per period) + a bold total row (SUBTOTAL formulas). */
+function tableBlock(ws: ExcelJS.Worksheet, r: ReportResult, start: number) {
+  if (r.main.kind !== "table") return;
+  const t = r.main;
+  const cols = [t.labelColumn, ...t.columns];
+  writeHeaderRow(ws, start, cols.map((c) => c.header));
+  t.rows.forEach((rec, i) => {
+    const row = ws.getRow(start + 1 + i);
+    cols.forEach((c, j) => (row.getCell(j + 1).value = cellValue(c, rec)));
+  });
+  const lastData = start + t.rows.length;
+  const tr = ws.getRow(lastData + 1);
+  tr.getCell(1).value = t.totalLabel;
+  t.columns.forEach((c, j) => (tr.getCell(j + 2).value = totalCell(ws, c, j + 2, start + 1, lastData, t.totals[c.key])));
+  tr.font = BOLD;
+  tr.eachCell((cell) => (cell.fill = TOTAL_FILL));
+  styleColumns(ws, t.columns, 2);
+  ws.getColumn(1).width = Math.max(ws.getColumn(1).width ?? 0, t.labelColumn.width ?? 24);
+  ws.autoFilter = { from: { row: start, column: 1 }, to: { row: Math.max(lastData, start), column: cols.length } };
+  ws.views = [{ state: "frozen", ySplit: start, xSplit: 1 }];
+}
+
 function matrixBlock(ws: ExcelJS.Worksheet, r: ReportResult, start: number) {
   if (r.main.kind !== "matrix") return;
   const m = r.main;
@@ -187,21 +209,20 @@ function matrixBlock(ws: ExcelJS.Worksheet, r: ReportResult, start: number) {
   ws.views = [{ state: "frozen", ySplit: start, xSplit: 1 }];
 }
 
-function detailSheet(wb: ExcelJS.Workbook, r: ReportResult) {
-  if (!r.detail) return;
-  const ws = wb.addWorksheet("Detail");
-  const cols = r.detail.columns;
+function detailSheet(wb: ExcelJS.Workbook, d: DetailResult) {
+  const ws = wb.addWorksheet(d.sheetName);
+  const cols = d.columns;
   writeHeaderRow(ws, 1, cols.map((c) => c.header));
-  r.detail.rows.forEach((rec, i) => {
+  d.rows.forEach((rec, i) => {
     const row = ws.getRow(i + 2);
     cols.forEach((c, j) => (row.getCell(j + 1).value = cellValue(c, rec)));
   });
-  const last = r.detail.rows.length + 1;
+  const last = d.rows.length + 1;
   const tr = ws.getRow(last + 1);
   tr.getCell(1).value = "Total";
   cols.forEach((c, j) => {
     if (j === 0 || aggregateOf(c) === "none") return;
-    tr.getCell(j + 1).value = totalCell(ws, c, j + 1, 2, last, r.detail!.totals[c.key]);
+    tr.getCell(j + 1).value = totalCell(ws, c, j + 1, 2, last, d.totals[c.key]);
   });
   tr.font = BOLD;
   tr.eachCell((cell) => (cell.fill = TOTAL_FILL));
@@ -230,7 +251,8 @@ function notesSheet(wb: ExcelJS.Workbook, def: ReportDefinition, r: ReportResult
   const shown = new Map<string, ColumnDef>();
   const add = (c: ColumnDef) => shown.set(c.key, c);
   if (r.main.kind === "grouped") { add(r.main.leafColumn); r.main.columns.forEach(add); }
-  r.detail?.columns.forEach(add);
+  if (r.main.kind === "table") r.main.columns.forEach(add);
+  detailsOf(r).forEach((d) => d.columns.forEach(add));
   for (const c of shown.values()) line(c.header, c.description ?? "");
   for (const k of r.kpis ?? []) line(k.label, k.description);
   row += 1;
@@ -253,8 +275,9 @@ export async function buildWorkbook(def: ReportDefinition, r: ReportResult): Pro
   let next = headerBlock(ws, r);
   next = summaryBlock(ws, r, next);
   if (r.main.kind === "grouped") groupedBlock(ws, r, next);
+  else if (r.main.kind === "table") tableBlock(ws, r, next);
   else matrixBlock(ws, r, next);
-  detailSheet(wb, r);
+  for (const d of detailsOf(r)) detailSheet(wb, d);
   notesSheet(wb, def, r);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

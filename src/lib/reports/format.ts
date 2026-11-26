@@ -92,7 +92,7 @@ export function formatValue(type: ColumnType, v: unknown, opts: { decimals?: num
     }
     case "percent": {
       const n = Number(v);
-      return { text: `${(n * 100).toFixed(1)}%`, negative: n < 0, empty: false };
+      return { text: `${(n * 100).toFixed(opts.decimals ?? 1)}%`, negative: n < 0, empty: false };
     }
     case "days": {
       const n = Math.round(Number(v));
@@ -110,6 +110,13 @@ export const formatCell = (col: ColumnDef, v: unknown, emptyText?: string) => fo
 export const isNumericType = (t: ColumnType) => t === "money" || t === "number" || t === "percent" || t === "days";
 export const alignOf = (c: ColumnDef) => c.align ?? (isNumericType(c.type) ? "right" : "left");
 export const aggregateOf = (c: ColumnDef) => c.aggregate ?? (c.type === "money" || c.type === "number" ? "sum" : c.type === "percent" && c.weightedBy ? "avg" : "none");
+
+/** Excel number format for a column: the type default, with the column decimals when set (number, percent). */
+export function excelFormatOf(c: Pick<ColumnDef, "type" | "decimals">): string | undefined {
+  if (c.decimals && c.type === "number") return `#,##0.${"0".repeat(c.decimals)}`;
+  if (c.decimals && c.type === "percent") return `0.${"0".repeat(c.decimals)}%`;
+  return EXCEL_FORMAT[c.type];
+}
 
 // ---------- Excel number formats per column type (standard §3) ----------
 

@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import type { Session } from "@/lib/auth/session";
 import { dataStatus, type DataStatus } from "@/lib/orgs";
 import { dateInTimeZone } from "./format";
-import { describeFilters, parseFilters } from "./filters";
+import { describeFilters, parseFilters, type FilterContext } from "./filters";
 import type { FilterOption, GroupingOption, ReportModule, ReportResult, ResolvedFilters } from "./types";
 
 /** Org time zone fallback when the user's token has no `timezone` claim. */
@@ -18,6 +18,7 @@ export type RunOutcome =
       filters: ResolvedFilters;
       grouping: GroupingOption;
       today: string;
+      filterContext: FilterContext;
       sync: DataStatus;
     };
 
@@ -62,16 +63,18 @@ export async function runReport(opts: {
   const sync = await dataStatus(s.orgId);
   if (!sync.lastRefreshedAt) return { state: "preparing", sync };
 
-  const filters = parseFilters(report.filters, params, today);
+  const filterContext: FilterContext = { fiscalYearStartMonth: Number(config.fiscalYearStartMonth) || 1 };
+  const filters = parseFilters(report.filters, params, today, filterContext);
   const groupParam = params instanceof URLSearchParams ? params.get("group") : (params.group as string | undefined);
   const grouping = pickGrouping(report, groupParam);
   const [data, who] = await Promise.all([report.load(s.orgId, filters), companyAndReporter(s)]);
-  const body = report.build({ data, filters, config, asOf: filters.asOf ?? today, grouping });
-  const options = report.filterOptions?.(data) ?? {};
+  const body = report.build({ data, filters, config, asOf: filters.asOf ?? today, grouping, timeZone });
+  const options = report.filterOptions?.(data, config) ?? {};
 
   return {
     state: "ready",
     today,
+    filterContext,
     filters,
     grouping,
     options,
@@ -84,7 +87,7 @@ export async function runReport(opts: {
         company: who.company,
         reporter: who.reporter,
         reportDate: today,
-        filters: describeFilters(report.filters, filters, options),
+        filters: [...describeFilters(report.filters, filters, options, filterContext), ...(report.headerNote ? [report.headerNote] : [])],
         dataAsOf: sync.lastRefreshedAt,
         syncWarning: syncWarning(sync, now),
         timeZone,

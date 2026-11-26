@@ -11,7 +11,7 @@ const byCustomer = definition.groupings[0];
 const byJob = definition.groupings[1];
 const noFilters = (q: Record<string, string | string[]> = {}): ResolvedFilters => parseFilters(definition.filters, q, AS_OF);
 const run = (opts: { data?: ArData; config?: ArConfig; filters?: ResolvedFilters; grouping?: typeof byCustomer } = {}) =>
-  build({ data: opts.data ?? DATA, filters: opts.filters ?? noFilters(), config: opts.config ?? { priorityThreshold: 25000 }, asOf: AS_OF, grouping: opts.grouping ?? byCustomer });
+  build({ data: opts.data ?? DATA, filters: opts.filters ?? noFilters(), config: opts.config ?? { priorityThreshold: 25000 }, asOf: AS_OF, grouping: opts.grouping ?? byCustomer, timeZone: "America/Los_Angeles" });
 const main = (r: ReturnType<typeof run>) => r.main as GroupedResult;
 const kpi = (r: ReturnType<typeof run>, key: string) => r.kpis!.find((k) => k.key === key)!.value;
 const inv = (o: Partial<ArInvoice>): ArInvoice => ({ ...INVOICES[0], id: "t", number: "T-1", retainage_amount: 0, paid_amount: 0, credit_applied: 0, ...o });
@@ -181,5 +181,15 @@ describe("A/R Aging: filters", () => {
 
   it("definition has no overrides beyond the recorded column-order one", () => {
     expect(definition.overrides.map((o) => o.section)).toEqual(["§3 column order"]);
+  });
+});
+
+describe("A/R Aging: terms", () => {
+  it("derived from the dates when the CRM has no payment term", async () => {
+    const { termsFor } = await import("./build");
+    expect(termsFor(null, "2026-10-01", "2026-10-31")).toBe("Net 30");
+    expect(termsFor(null, "2026-10-01", "2026-10-01")).toBe("Due on receipt");
+    expect(termsFor("Net 45", "2026-10-01", "2026-10-31")).toBe("Net 45");
+    expect([termsFor(null, null, "2026-10-01"), termsFor(null, "2026-10-05", "2026-10-01")]).toEqual([null, null]);
   });
 });

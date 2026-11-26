@@ -4,7 +4,36 @@ import type { DatePreset, FilterDef, FilterOption, ResolvedFilters } from "./typ
 /**
  * Shared filters (standard §4). Filters live only in the URL query string:
  *   asOf=YYYY-MM-DD · <key>=<preset>&<key>From=YYYY-MM-DD&<key>To=YYYY-MM-DD · <key>=a&<key>=b (multi-select)
+ *   year=2026 · <choice>=<option> · <window>=YYYY-MM-DD_YYYY-MM-DD (drill-down)
+ * Fiscal years are named by the calendar year they END in (fiscalYearStartMonth = 7: FY2026 = Jul 2025 – Jun 2026).
  */
+
+/** Context some filters need (from the org's report config). */
+export type FilterContext = { fiscalYearStartMonth?: number };
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Fiscal year containing a date. */
+export function fiscalYearOf(date: string, startMonth = 1): number {
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7));
+  return startMonth === 1 || m < startMonth ? y : y + 1;
+}
+
+/** Inclusive date range of a fiscal year. */
+export function fiscalYearRange(fy: number, startMonth = 1): { from: string; to: string } {
+  const startYear = startMonth === 1 ? fy : fy - 1;
+  return { from: ymd(startYear, startMonth, 1), to: ymd(startYear + 1, startMonth, 0) };
+}
+
+export function fiscalYearLabel(fy: number, startMonth = 1): string {
+  if (startMonth === 1) return String(fy);
+  const r = fiscalYearRange(fy, startMonth);
+  return `FY${fy} (${MONTHS[Number(r.from.slice(5, 7)) - 1]} ${r.from.slice(0, 4)} – ${MONTHS[Number(r.to.slice(5, 7)) - 1]} ${r.to.slice(0, 4)})`;
+}
+
+const WINDOW_RE = /^(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/;
+export const windowParam = (from: string, to: string) => `${from}_${to}`;
 
 export const DATE_PRESETS: { id: DatePreset; label: string }[] = [
   { id: "this_month", label: "This month" },
@@ -46,8 +75,8 @@ const getAll = (p: Params, k: string): string[] => {
 const get = (p: Params, k: string) => getAll(p, k)[0] ?? null;
 
 /** Parse + validate filters from the query string. Defaults: as-of today, each range its default preset, multi = all. */
-export function parseFilters(defs: FilterDef[], params: Params, today: string): ResolvedFilters {
-  const out: ResolvedFilters = { asOf: null, ranges: {}, multi: {} };
+export function parseFilters(defs: FilterDef[], params: Params, today: string, ctx: FilterContext = {}): ResolvedFilters {
+  const out: ResolvedFilters = { asOf: null, ranges: {}, multi: {}, choice: {}, windows: {} };
   for (const f of defs) {
     if (f.kind === "asOf") {
       const v = get(params, f.key);
@@ -62,6 +91,19 @@ export function parseFilters(defs: FilterDef[], params: Params, today: string): 
         if (!validDate(from) || !validDate(to) || from > to) throw new FilterError(`${f.label}: choose a valid from/to date`);
         out.ranges[f.key] = { preset, from, to };
       } else out.ranges[f.key] = { preset, ...resolvePreset(preset, today) };
+    } else if (f.kind === "year") {
+      const v = get(params, f.key);
+      if (v && !/^\d{4}$/.test(v)) throw new FilterError(`${f.label} must be a year`);
+      out.choice[f.key] = v || String(fiscalYearOf(today, ctx.fiscalYearStartMonth));
+    } else if (f.kind === "choice") {
+      const v = get(params, f.key);
+      if (v && !f.options.some((o) => o.value === v)) throw new FilterError(`Unknown ${f.label.toLowerCase()}`);
+      out.choice[f.key] = v || f.default;
+    } else if (f.kind === "window") {
+      const v = get(params, f.key);
+      const m = v ? WINDOW_RE.exec(v) : null;
+      if (v && (!m || !validDate(m[1]) || !validDate(m[2]) || m[1] > m[2])) throw new FilterError(`${f.label}: invalid period`);
+      out.windows[f.key] = m ? { from: m[1], to: m[2] } : null;
     } else {
       out.multi[f.key] = [...new Set(getAll(params, f.key).filter(Boolean))];
     }
@@ -70,7 +112,7 @@ export function parseFilters(defs: FilterDef[], params: Params, today: string): 
 }
 
 /** Back to a query string (for links: sort, grouping, clear one filter...). */
-export function filtersToQuery(defs: FilterDef[], r: ResolvedFilters, today: string): URLSearchParams {
+export function filtersToQuery(defs: FilterDef[], r: ResolvedFilters, today: string, ctx: FilterContext = {}): URLSearchParams {
   const q = new URLSearchParams();
   for (const f of defs) {
     if (f.kind === "asOf" && r.asOf && r.asOf !== today) q.set(f.key, r.asOf);
@@ -81,14 +123,17 @@ export function filtersToQuery(defs: FilterDef[], r: ResolvedFilters, today: str
       if (v.preset === "custom") { q.set(`${f.key}From`, v.from); q.set(`${f.key}To`, v.to); }
     }
     if (f.kind === "multi") for (const v of r.multi[f.key] ?? []) q.append(f.key, v);
+    if (f.kind === "year" && r.choice[f.key] && r.choice[f.key] !== String(fiscalYearOf(today, ctx.fiscalYearStartMonth))) q.set(f.key, r.choice[f.key]);
+    if (f.kind === "choice" && r.choice[f.key] && r.choice[f.key] !== f.default) q.set(f.key, r.choice[f.key]);
+    if (f.kind === "window" && r.windows[f.key]) q.set(f.key, windowParam(r.windows[f.key]!.from, r.windows[f.key]!.to));
   }
   return q;
 }
 
-export const hasActiveFilters = (defs: FilterDef[], r: ResolvedFilters, today: string) => [...filtersToQuery(defs, r, today).keys()].length > 0;
+export const hasActiveFilters = (defs: FilterDef[], r: ResolvedFilters, today: string, ctx: FilterContext = {}) => [...filtersToQuery(defs, r, today, ctx).keys()].length > 0;
 
 /** Human-readable active filters for the header, Excel row 6 and the event log. */
-export function describeFilters(defs: FilterDef[], r: ResolvedFilters, options: Record<string, FilterOption[]> = {}): string[] {
+export function describeFilters(defs: FilterDef[], r: ResolvedFilters, options: Record<string, FilterOption[]> = {}, ctx: FilterContext = {}): string[] {
   const out: string[] = [];
   for (const f of defs) {
     if (f.kind === "asOf") out.push(`${f.label} ${formatDate(r.asOf)}`);
@@ -96,6 +141,13 @@ export function describeFilters(defs: FilterDef[], r: ResolvedFilters, options: 
       const v = r.ranges[f.key];
       const preset = DATE_PRESETS.find((p) => p.id === v.preset)!.label;
       out.push(`${f.label}: ${v.preset === "custom" ? "" : `${preset}, `}${formatDate(v.from)} – ${formatDate(v.to)}`);
+    } else if (f.kind === "year") {
+      out.push(`${f.label}: ${fiscalYearLabel(Number(r.choice[f.key]), ctx.fiscalYearStartMonth)}`);
+    } else if (f.kind === "choice") {
+      out.push(`${f.label}: ${f.options.find((o) => o.value === r.choice[f.key])?.label ?? r.choice[f.key]}`);
+    } else if (f.kind === "window") {
+      const w = r.windows[f.key];
+      if (w) out.push(`${f.label}: ${formatDate(w.from)} – ${formatDate(w.to)}`);
     } else {
       const sel = r.multi[f.key] ?? [];
       if (!sel.length) { out.push(f.allLabel); continue; }

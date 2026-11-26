@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ repo
       return NextResponse.json({ error: "Your data is still being prepared. Try again in a few minutes." }, { status: 409 });
     }
     const r = run.result;
-    const params = { version: r.meta.version, grouping: r.meta.grouping, filters: r.header.filters, ...r.meta.params };
+    const params = { version: r.meta.version, grouping: r.meta.grouping, filters: r.header.filters, ...(access.preview ? { preview: true } : {}), ...r.meta.params };
     if (xlsx) {
       const buffer = await buildWorkbook(access.report, r);
       await logEvent(supabaseStore, { orgId: session.orgId, userId: session.userId, userEmail: session.email, reportId, action: "export_xlsx", params, rowCount: r.rowCount });

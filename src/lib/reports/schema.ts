@@ -6,9 +6,10 @@
 
 type Base = { label: string; help?: string };
 export type ScalarField =
-  | (Base & { type: "number"; min?: number; optional?: boolean; default?: number })
+  | (Base & { type: "number"; min?: number; max?: number; integer?: boolean; optional?: boolean; default?: number })
   | (Base & { type: "boolean"; default: boolean })
-  | (Base & { type: "string"; optional?: boolean; default?: string })
+  /** options: allowed values (rendered as a select in the admin form). */
+  | (Base & { type: "string"; optional?: boolean; default?: string; options?: { value: string; label: string }[] })
   | (Base & { type: "stringList"; default?: string[] });
 export type Field = ScalarField | (Base & { type: "records"; fields: Record<string, ScalarField>; default?: Record<string, unknown>[] });
 export type ConfigSchema = Record<string, Field>;
@@ -29,6 +30,8 @@ function scalar(f: ScalarField, v: unknown, path: string, errors: Record<string,
       }
       if (typeof v !== "number" || !Number.isFinite(v)) return void (errors[path] = "Must be a number");
       if (f.min !== undefined && v < f.min) return void (errors[path] = `Must be at least ${f.min}`);
+      if (f.max !== undefined && v > f.max) return void (errors[path] = `Must be at most ${f.max}`);
+      if (f.integer && !Number.isInteger(v)) return void (errors[path] = "Must be a whole number");
       return v;
     case "boolean":
       if (v == null) return f.default;
@@ -41,6 +44,7 @@ function scalar(f: ScalarField, v: unknown, path: string, errors: Record<string,
         return undefined;
       }
       if (typeof v !== "string") return void (errors[path] = "Must be text");
+      if (f.options && !f.options.some((o) => o.value === v.trim())) return void (errors[path] = `Must be one of: ${f.options.map((o) => o.value).join(", ")}`);
       return v.trim();
     case "stringList":
       if (v == null) return f.default ?? [];

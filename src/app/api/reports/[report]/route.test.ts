@@ -44,7 +44,7 @@ describe("GET /api/reports/[report]", () => {
     expect(res.status).toBe(200);
     expect(runReport.mock.calls[0][0]).toMatchObject({ session: { orgId: "orgA" }, config: { priorityThreshold: 500, includeDeposits: true } });
     expect(m.events).toHaveLength(1);
-    expect(m.events[0]).toMatchObject({ orgId: "orgA", reportId: "ar-aging", action: "view", rowCount: 6, params: { version: "2.0.0", grouping: "customer" } });
+    expect(m.events[0]).toMatchObject({ orgId: "orgA", reportId: "ar-aging", action: "view", rowCount: 6, params: { version: "2.1.0", grouping: "customer" } });
   });
 
   it("xlsx export: standard file name, logged as export_xlsx with version and filters", async () => {
@@ -54,7 +54,7 @@ describe("GET /api/reports/[report]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("spreadsheetml");
     expect(res.headers.get("content-disposition")).toContain("ar-aging_Sample-Flooring_2026-11-25.xlsx");
-    expect(m.events[0]).toMatchObject({ action: "export_xlsx", rowCount: 6, params: { version: "2.0.0", filters: ["As of Nov 25, 2026", "All customers", "All jobs", "All owners"] } });
+    expect(m.events[0]).toMatchObject({ action: "export_xlsx", rowCount: 6, params: { version: "2.1.0", filters: ["As of Nov 25, 2026", "All customers", "All jobs", "All owners"] } });
   });
 
   it("409 while the org's first sync hasn't finished", async () => {

@@ -40,6 +40,14 @@ function ScalarInput({ f, name, value }: { f: ScalarField; name: string; value: 
     case "number":
       return <input type="number" step="any" name={name} defaultValue={value == null ? "" : String(value)} style={{ ...input, width: 160 }} />;
     case "string":
+      if (f.options) {
+        return (
+          <select name={name} defaultValue={value == null ? f.default ?? "" : String(value)} style={{ ...input, width: "100%" }}>
+            {f.optional && <option value="">(none)</option>}
+            {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        );
+      }
       return <input type="text" name={name} defaultValue={value == null ? "" : String(value)} style={{ ...input, width: "100%" }} />;
     case "stringList":
       return (

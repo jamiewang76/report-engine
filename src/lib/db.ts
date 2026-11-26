@@ -18,6 +18,13 @@ export function forOrg(orgId: string) {
     select: (table: string, columns = "*") => db().from(table).select(columns).eq("org_id", orgId),
     upsert: (table: string, rows: Record<string, unknown>[]) =>
       db().from(table).upsert(rows.map((r) => ({ ...r, org_id: orgId }))),
+    /** Delete this org's rows with these ids (chunked). */
+    async deleteIds(table: string, ids: string[]) {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error } = await db().from(table).delete().eq("org_id", orgId).in("id", ids.slice(i, i + 200));
+        if (error) throw error;
+      }
+    },
     /**
      * Every row for this org, paged (PostgREST caps a single response at 1,000 rows by default, which would silently
      * truncate reports). Ordered by `orderBy` (a unique column) so pages are stable.

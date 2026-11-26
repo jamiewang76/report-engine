@@ -35,7 +35,11 @@ Customer-facing custom reports on MeasureSquare CRM data. See README.md for arch
 | CRM deep links | `src/lib/reports/crmLinks.ts` |
 | Web page (any report) | `src/app/reports/[report]/page.tsx` + `src/app/reports/components/` |
 
-Reference implementation: `src/lib/reports/ar-aging/`.
+Reference implementations: `src/lib/reports/ar-aging/` (grouped main view, one detail table) and `src/lib/reports/financial-summary/` (period table main view, two detail tables, Year/Period filters, row-click drill-down, recorded overrides).
+
+- CRM money fields are integer **cents** (swagger int64). The sync converts to dollars (`money()` in `src/lib/sync.ts`); rates/percents are not money.
+- Draft reports: Super Admins can preview a built draft on their current org (default config, not assigned, banner shown). Customers never see drafts.
+- Optional cache tables (e.g. `purchase_orders`, `work_orders`) sync only for orgs whose assigned reports list them in `dataSources.tables` (plus drafts when a Super Admin refreshes).
 
 ### How to add a new report
 

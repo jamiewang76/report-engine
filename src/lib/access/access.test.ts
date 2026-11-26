@@ -185,3 +185,22 @@ describe("org added by a Super Admin before anyone signs in", () => {
     expect(await checkReportAccess(m.store, session({ orgId: "orgZ", userId: "u7" }), "ar-aging")).toMatchObject({ ok: true });
   });
 });
+
+describe("draft preview (Super Admin only)", () => {
+  const staff = (o: Partial<Session> = {}) => session({ email: "jamie@measuresquare.com", superClaim: true, ...o });
+
+  it("a Super Admin can preview a built draft report on their current org with default config, unassigned", async () => {
+    const r = await checkReportAccess(memoryStore().store, staff(), "financial-summary");
+    expect(r).toMatchObject({ ok: true, preview: true, assignmentId: null });
+    if (r.ok) expect(r.config).toMatchObject({ fiscalYearStartMonth: 1, showCommittedCost: true });
+  });
+
+  it("customers never see drafts; staff without Super Admin don't either; unbuilt drafts stay hidden", async () => {
+    const m = memoryStore();
+    m.assign("orgA", "financial-summary");
+    expect(await checkReportAccess(m.store, session(), "financial-summary")).toMatchObject({ ok: false, status: 403 });
+    expect(await checkReportAccess(m.store, session({ email: "x@measuresquare.com" }), "financial-summary")).toMatchObject({ ok: false, status: 403 });
+    expect(await checkReportAccess(m.store, session({ email: "owner@customer.com", superClaim: true }), "financial-summary")).toMatchObject({ ok: false, status: 403 });
+    expect(await checkReportAccess(m.store, staff(), "bid-timing")).toMatchObject({ ok: false, status: 403 });
+  });
+});
