@@ -28,3 +28,24 @@ describe("A/R Aging data.ts", () => {
     expect(d.invoices.find((i) => i.number === "INV-1005")!.owner_name).toBeNull(); // its deal isn't in this org's cache
   });
 });
+
+describe("A/R Aging joinDeals", () => {
+  const base = { org_id: "o", id: "x", number: "INV-1", invoice_date: null, due_date: null, payment_term: null, amount: 100, paid_amount: 0, credit_applied: 0, retainage_amount: 0, retainage_due_date: null, is_deposit: false };
+  const deal = { id: "d1", name: "Riverside Lofts", job_number: "101", account_name: "Acme Builders", owner_name: "Sam Lee" };
+
+  it("fills customer, job name and job number from the job when the invoice has only the job id", async () => {
+    const { joinDeals } = await import("./data");
+    const [r] = joinDeals([{ ...base, deal_id: "d1", account_name: null, deal_name: null, job_number: null }], [deal]);
+    expect(r).toMatchObject({ account_name: "Acme Builders", deal_name: "Riverside Lofts", job_number: "101", owner_name: "Sam Lee" });
+  });
+
+  it("keeps the invoice's own names when present, and leaves blanks when there is no job", async () => {
+    const { joinDeals } = await import("./data");
+    const [a, b] = joinDeals([
+      { ...base, deal_id: "d1", account_name: "Billed To Co", deal_name: "Own Name", job_number: "9" },
+      { ...base, id: "y", deal_id: null, account_name: null, deal_name: null, job_number: null },
+    ], [deal]);
+    expect(a).toMatchObject({ account_name: "Billed To Co", deal_name: "Own Name", job_number: "9" });
+    expect(b).toMatchObject({ account_name: null, deal_name: null, owner_name: null });
+  });
+});

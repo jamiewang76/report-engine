@@ -3,6 +3,8 @@ import { DATE_PRESETS, filtersToQuery, hasActiveFilters } from "@/lib/reports/fi
 import { sortRows } from "@/lib/reports/grouping";
 import type { ColumnDef, FilterOption, GroupingOption, MatrixResult, ReportDefinition, ReportResult, ResolvedFilters } from "@/lib/reports/types";
 import { CellContent, tdStyle } from "./Cell";
+import { scrollBox, stickyFoot, thBase } from "./columnLayout";
+import DetailTable from "./DetailTable";
 import GroupedTable from "./GroupedTable";
 import MultiSelect from "./MultiSelect";
 
@@ -181,10 +183,11 @@ export default function ReportView({ def, result: r, options, filters, grouping,
           )}
           <section style={{ marginTop: 12 }}>
             {view.tab === "detail" && r.detail ? (
-              <DetailTable r={r} view={view} sortLink={sortLink} pageHref={(p) => href({ page: p > 1 ? String(p) : null })} />
+              <DetailSection r={r} def={def} view={view} sortLink={sortLink} pageHref={(p) => href({ page: p > 1 ? String(p) : null })} />
             ) : r.main.kind === "grouped" ? (
               <GroupedTable
                 main={r.main}
+                storageKey={`report-layout:${def.id}:main:${grouping.id}`}
                 sort={view.sort && r.main.columns.some((c) => c.key === view.sort!.key) ? view.sort : null}
                 sortHref={Object.fromEntries(r.main.columns.map((c) => [c.key, sortLink(c.key, "desc")]))}
                 defaultExpanded={expandedGroups}
@@ -225,39 +228,25 @@ function uniqueCols(r: ReportResult): ColumnDef[] {
   return [...m.values()];
 }
 
-const th: React.CSSProperties = { padding: "8px 10px", fontSize: 12, fontWeight: 600, color: "#475467", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #e4e7ec", background: "#f9fafb", whiteSpace: "nowrap" };
+const th = thBase;
 
-function DetailTable({ r, view, sortLink, pageHref }: { r: ReportResult; view: ViewState; sortLink: (k: string, d: "asc" | "desc") => string; pageHref: (p: number) => string }) {
+function DetailSection({ r, def, view, sortLink, pageHref }: { r: ReportResult; def: ReportDefinition; view: ViewState; sortLink: (k: string, d: "asc" | "desc") => string; pageHref: (p: number) => string }) {
   const d = r.detail!;
   const valid = view.sort && d.columns.some((c) => c.key === view.sort!.key) ? view.sort : null;
   const rows = valid ? sortRows(d.rows, valid) : d.rows;
   const pages = Math.max(1, Math.ceil(rows.length / DETAIL_PAGE_SIZE));
   const page = Math.min(Math.max(1, view.page), pages);
   const slice = rows.slice((page - 1) * DETAIL_PAGE_SIZE, page * DETAIL_PAGE_SIZE);
-  const arrow = (k: string) => (valid?.key === k ? (valid.dir === "asc" ? " ▲" : " ▼") : "");
   return (
     <>
-      <div style={{ overflowX: "auto", border: "1px solid #e4e7ec", borderRadius: 10, background: "#fff" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-          <thead>
-            <tr>{d.columns.map((c) => (
-              <th key={c.key} style={{ ...th, textAlign: alignOf(c) }} title={c.description}>
-                <a href={sortLink(c.key, c.type === "text" || c.type === "link" ? "asc" : "desc")} style={{ color: "inherit", textDecoration: "none" }}>{c.header}{arrow(c.key)}</a>
-              </th>
-            ))}</tr>
-          </thead>
-          <tbody>
-            {slice.map((row, i) => (
-              <tr key={String(row.id ?? i)}>{d.columns.map((c) => <td key={c.key} style={tdStyle(c)}><CellContent col={c} row={row} /></td>)}</tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ fontWeight: 700, background: "#f2f4f7" }}>
-              {d.columns.map((c, i) => <td key={c.key} style={{ ...tdStyle(c), borderTop: "2px solid #d0d5dd" }}>{i === 0 ? "Total" : <CellContent col={c} row={d.totals} />}</td>)}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <DetailTable
+        storageKey={`report-layout:${def.id}:detail`}
+        columns={d.columns}
+        rows={slice}
+        totals={d.totals}
+        sort={valid}
+        sortHref={Object.fromEntries(d.columns.map((c) => [c.key, sortLink(c.key, c.type === "text" || c.type === "link" ? "asc" : "desc")]))}
+      />
       {pages > 1 && (
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8, fontSize: 13 }}>
           {page > 1 && <a href={pageHref(page - 1)} style={btn()}>← Previous</a>}
@@ -273,8 +262,8 @@ function MatrixTable({ m }: { m: MatrixResult }) {
   const valueCol: ColumnDef = { key: "v", header: "", type: m.valueType };
   const cell = (v: number | null) => <CellContent col={valueCol} row={{ v }} empty={EMPTY} />;
   return (
-    <div style={{ overflowX: "auto", border: "1px solid #e4e7ec", borderRadius: 10, background: "#fff" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+    <div style={scrollBox}>
+      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 14 }}>
         <thead>
           <tr>
             <th style={{ ...th, textAlign: "left" }}>{m.rowLabel}</th>
@@ -293,9 +282,9 @@ function MatrixTable({ m }: { m: MatrixResult }) {
         </tbody>
         <tfoot>
           <tr style={{ fontWeight: 700, background: "#f2f4f7" }}>
-            <td style={{ padding: "9px 10px", borderTop: "2px solid #d0d5dd" }}>Total</td>
-            {m.columnKeys.map((c) => <td key={c.key} style={{ ...tdStyle(valueCol), borderTop: "2px solid #d0d5dd" }}>{cell(m.columnTotals[c.key])}</td>)}
-            <td style={{ ...tdStyle(valueCol), borderTop: "2px solid #d0d5dd" }}>{cell(m.grandTotal)}</td>
+            <td style={{ padding: "9px 10px", ...stickyFoot }}>Total</td>
+            {m.columnKeys.map((c) => <td key={c.key} style={{ ...tdStyle(valueCol), ...stickyFoot }}>{cell(m.columnTotals[c.key])}</td>)}
+            <td style={{ ...tdStyle(valueCol), ...stickyFoot }}>{cell(m.grandTotal)}</td>
           </tr>
         </tfoot>
       </table>

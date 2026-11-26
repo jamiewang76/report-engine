@@ -67,6 +67,7 @@ describe("A/R Aging: known totals (hand-calculated, see fixtures/invoices.ts)", 
       customer: "Acme Builders", job: "101 - Riverside Lofts", invoiceDate: "2026-09-15", dueDate: "2026-10-15", terms: "Net 30",
       daysPastDue: 41, bucket: "31–60", amount: 8500.5, paid: 3000.25, credits: 0, openBalance: 4650.2, retainageHeld: 850.05, priority: "Medium",
       jobHref: "https://crm.measuresquare.com/crm/sales/deals/d101",
+      numberHref: "https://crm.measuresquare.com/crm/sales/invoices/i1002",
     });
     expect(d.rows.find((x) => x.number === "INV-1001")!.dueDate).toBe("2026-12-01"); // timestamp -> calendar date
   });

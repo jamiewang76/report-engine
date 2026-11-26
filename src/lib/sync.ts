@@ -10,6 +10,47 @@ const name = (v: unknown) => (v && typeof v === "object" && "name" in v ? String
 /** Payment terms may come as text ("Net 30") or as a lookup object ({ id, name }). */
 const termText = (v: unknown) => (v == null || v === "" ? null : typeof v === "object" ? name(v) : String(v));
 
+/** First non-empty value among candidate paths ("a.b") of a CRM record; tolerant of DTO shape differences. */
+export function pick(o: Record<string, unknown>, ...paths: string[]): unknown {
+  for (const path of paths) {
+    let v: unknown = o;
+    for (const k of path.split(".")) v = v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined;
+    if (v != null && v !== "") return v;
+  }
+  return null;
+}
+const str = (v: unknown) => (v == null || v === "" ? null : typeof v === "object" ? name(v) : String(v));
+
+/**
+ * Invoice list item + detail -> cache row. Detail wins; the list item fills anything the detail lacks
+ * (the list carries the customer and job names, the detail may only carry ids).
+ */
+export function invoiceRow(summary: InvoiceSummary | undefined, detail: InvoiceDetail) {
+  const i = { ...(summary ?? {}), ...Object.fromEntries(Object.entries(detail).filter(([, v]) => v != null && v !== "")) } as Record<string, unknown>;
+  return {
+    id: String(i.id),
+    deal_id: str(pick(i, "dealId", "deal.id")),
+    number: String(i.number ?? ""),
+    deal_name: str(pick(i, "dealName", "deal.name")),
+    job_number: str(pick(i, "dealJobNumber", "jobNumber", "deal.jobNumber")),
+    account_name: str(pick(i, "accountName", "account.name", "customerName", "customer.name", "billToName", "billTo.name")),
+    status: String(i.status ?? ""),
+    invoice_date: str(pick(i, "date", "invoiceDate")),
+    due_date: str(pick(i, "dueDate")),
+    amount: n(pick(i, "amount", "total")),
+    pre_tax_total: n(pick(i, "preTaxTotal")),
+    tax_amount: n(pick(i, "taxAmount")),
+    paid_amount: n(pick(i, "paidAmount")),
+    credit_applied: n(pick(i, "appliedCreditNoteAmount")),
+    retainage_amount: n(pick(i, "retainageAmount")),
+    retainage_due_date: str(pick(i, "retainageDueDate")),
+    payment_term: termText(pick(i, "paymentTerm", "paymentTerms", "paymentTermName", "term", "terms")),
+    is_deposit: (i.isDeposit as boolean | undefined) ?? null,
+    raw: i,
+    synced_at: new Date().toISOString(),
+  };
+}
+
 /** Deals: list filtered by UpdatedStart (incremental), then fetch detail for dates/financial fields. */
 async function syncDeals(crm: CrmClient, orgId: string, since: string | null) {
   const list = await crm.all<DealListItem>("/api/Deals", { IsViewAll: true, UpdatedStart: since ?? undefined });
@@ -62,28 +103,8 @@ async function syncInvoices(crm: CrmClient, orgId: string) {
     return !k || open || Number(k.paid_amount) !== Number(i.paidAmount) || Number(k.retainage_amount ?? 0) > 0;
   });
   const details = await mapLimit(needsDetail, CONCURRENCY, (i) => crm.get<InvoiceDetail>(`/api/Invoices/${i.id}`));
-  const rows = details.map((i) => ({
-    id: i.id,
-    deal_id: i.dealId ?? null,
-    number: i.number,
-    deal_name: i.dealName ?? null,
-    job_number: i.dealJobNumber ?? null,
-    account_name: i.accountName ?? null,
-    status: String(i.status),
-    invoice_date: i.date ?? null,
-    due_date: i.dueDate ?? null,
-    amount: n(i.amount),
-    pre_tax_total: n(i.preTaxTotal),
-    tax_amount: n(i.taxAmount),
-    paid_amount: n(i.paidAmount),
-    credit_applied: n(i.appliedCreditNoteAmount),
-    retainage_amount: n(i.retainageAmount),
-    retainage_due_date: i.retainageDueDate ?? null,
-    payment_term: termText(i.paymentTerm),
-    is_deposit: i.isDeposit ?? null,
-    raw: i,
-    synced_at: new Date().toISOString(),
-  }));
+  const byId = new Map(list.map((i) => [i.id, i]));
+  const rows = details.map((d) => invoiceRow(byId.get(d.id), d));
   for (let i = 0; i < rows.length; i += 500) {
     const { error } = await forOrg(orgId).upsert("invoices", rows.slice(i, i + 500));
     if (error) throw error;

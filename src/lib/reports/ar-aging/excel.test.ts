@@ -80,7 +80,7 @@ describe("A/R Aging Excel export (from fixtures)", () => {
     expect(headers).toEqual(definition.views.detail!.columns.map((k) => definition.columns.find((c) => c.key === k)!.header));
     const col = (name: string) => headers.indexOf(name) + 1;
     const r2 = ws.getRow(2); // first row = most days past due = INV-1003
-    expect(r2.getCell(col("Invoice #")).value).toMatchObject({ text: "INV-1003", hyperlink: "https://crm.measuresquare.com/crm/sales/deals/d102" });
+    expect(r2.getCell(col("Invoice #")).value).toMatchObject({ text: "INV-1003", hyperlink: "https://crm.measuresquare.com/crm/sales/invoices/i1003" });
     expect(r2.getCell(col("Invoice Date")).value).toBeInstanceOf(Date);
     expect((r2.getCell(col("Invoice Date")).value as Date).toISOString().slice(0, 10)).toBe("2026-07-01");
     expect(r2.getCell(col("Days Past Due")).value).toBe(117);
