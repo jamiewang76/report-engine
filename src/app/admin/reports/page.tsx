@@ -20,6 +20,9 @@ export default async function AdminReports() {
             <div key={r.id} style={card}>
               <strong>{r.name}</strong> <Badge tone={statusTone(r.status)}>{r.status}</Badge>{" "}
               <span style={muted}>{r.id}</span>
+              {r.status === "draft" && r.build && (
+                <a href={`/reports/${r.id}`} style={{ float: "right", color: "#1f4fd1", fontSize: 13 }}>Preview on current org →</a>
+              )}
               <div style={{ ...muted, margin: "4px 0 12px" }}>{r.description}</div>
               {!rows.length ? (
                 <div style={muted}>Not assigned to any organization.</div>
